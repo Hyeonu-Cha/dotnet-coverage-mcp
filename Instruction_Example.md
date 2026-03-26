@@ -70,9 +70,9 @@ Fix a failure **once**. If it fails again, mark as `🛠️ Blocked` with a root
 ## 📊 Comparative Progress Table
 > Populate the **Before** column after the first `RunTestsWithCoverage` run. Populate **After** after each subsequent run.
 
-| Method | Line % | Branch % | New Tests | Status | Notes |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| *(fill after first run)* | | | | | |
+| Method | Line % (Before) | Line % (After) | Branch % (Before) | Branch % (After) | New Tests | Status | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| *(fill after first run)* | | | | | | | |
 
 ## 🏁 Termination
 Target: Both Branch Coverage >= 80% && Line Coverage >= 80% (excluding Blocked/Exempt) OR 3 Iterations reached.
