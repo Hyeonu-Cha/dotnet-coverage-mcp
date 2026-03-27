@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using ModelContextProtocol.Server;
 
@@ -306,6 +307,116 @@ public class CoverageTools
         };
 
         return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = false });
+    }
+
+    [McpServerTool]
+    public string DiscoverTestConfiguration(string sourceFilePath)
+    {
+        if (!File.Exists(sourceFilePath))
+            return $"{{\"error\":\"Source file not found: {sourceFilePath}\"}}";
+
+        var sourceFullPath = Path.GetFullPath(sourceFilePath);
+
+        // Walk up to find .sln
+        var dir = Path.GetDirectoryName(sourceFullPath);
+        string? solutionPath = null;
+        while (dir != null)
+        {
+            var slnFiles = Directory.GetFiles(dir, "*.sln");
+            if (slnFiles.Length > 0)
+            {
+                solutionPath = slnFiles[0];
+                break;
+            }
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        if (solutionPath == null)
+            return "{\"error\":\"No .sln file found in any parent directory.\"}";
+
+        var solutionDir = Path.GetDirectoryName(solutionPath)!;
+
+        // Parse .sln to find project references
+        var slnContent = File.ReadAllText(solutionPath);
+        var projectPattern = new Regex(@"Project\(""\{[^}]+\}""\)\s*=\s*""([^""]+)""\s*,\s*""([^""]+)""");
+        var projects = projectPattern.Matches(slnContent)
+            .Select(m => new { Name = m.Groups[1].Value, RelativePath = m.Groups[2].Value.Replace('\\', Path.DirectorySeparatorChar) })
+            .Where(p => p.RelativePath.EndsWith(".csproj"))
+            .ToList();
+
+        // Find which project contains the source file
+        string? sourceProjectPath = null;
+        string? sourceProjectName = null;
+        foreach (var proj in projects)
+        {
+            var projFullPath = Path.GetFullPath(Path.Combine(solutionDir, proj.RelativePath));
+            var projDir = Path.GetDirectoryName(projFullPath)!;
+            if (sourceFullPath.StartsWith(projDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                sourceProjectPath = projFullPath;
+                sourceProjectName = proj.Name;
+                break;
+            }
+        }
+
+        if (sourceProjectPath == null)
+            return "{\"error\":\"Could not determine which project contains the source file.\"}";
+
+        // Find matching test project (convention: ProjectName.Tests, ProjectName.UnitTests)
+        var testSuffixes = new[] { ".Tests", ".UnitTests", ".Test" };
+        string? testProjectPath = null;
+        string? testProjectName = null;
+        foreach (var suffix in testSuffixes)
+        {
+            var candidate = projects.FirstOrDefault(p =>
+                p.Name.Equals(sourceProjectName + suffix, StringComparison.OrdinalIgnoreCase));
+            if (candidate != null)
+            {
+                testProjectPath = Path.GetFullPath(Path.Combine(solutionDir, candidate.RelativePath));
+                testProjectName = candidate.Name;
+                break;
+            }
+        }
+
+        if (testProjectPath == null)
+            return $"{{\"error\":\"No test project found for '{sourceProjectName}'. Expected one of: {string.Join(", ", testSuffixes.Select(s => sourceProjectName + s))}\"}}";
+
+        // Compute mirrored test file path
+        var sourceProjectDir = Path.GetDirectoryName(sourceProjectPath)!;
+        var testProjectDir = Path.GetDirectoryName(testProjectPath)!;
+        var relativePath = Path.GetRelativePath(sourceProjectDir, sourceFullPath);
+        var sourceFileName = Path.GetFileNameWithoutExtension(sourceFullPath);
+        var relativeDir = Path.GetDirectoryName(relativePath) ?? "";
+        var testFileName = sourceFileName + "Tests.cs";
+        var suggestedTestFile = Path.Combine(testProjectDir, "Unit", relativeDir, testFileName);
+
+        var result = new
+        {
+            solution = solutionPath,
+            sourceProject = sourceProjectPath,
+            sourceProjectName,
+            testProject = testProjectPath,
+            testProjectName,
+            sourceFile = sourceFullPath,
+            suggestedTestFile = Path.GetFullPath(suggestedTestFile),
+            testFileExists = File.Exists(suggestedTestFile)
+        };
+
+        return JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = false });
+    }
+
+    [McpServerTool]
+    public string CreateTestFile(string testFilePath)
+    {
+        var fullPath = Path.GetFullPath(testFilePath);
+
+        if (File.Exists(fullPath))
+            return JsonSerializer.Serialize(new { status = "exists", testFilePath = fullPath, message = "Test file already exists. Use AppendTestCode to add tests." });
+
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        File.WriteAllText(fullPath, "");
+
+        return JsonSerializer.Serialize(new { status = "created", testFilePath = fullPath });
     }
 
     private static string StripTestSuffix(string className)
