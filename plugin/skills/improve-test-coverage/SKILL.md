@@ -90,6 +90,16 @@ For each uncovered branch, write a focused unit test using `AppendTestCode`:
 - Descriptive names: `MethodName_Condition_ExpectedResult` pattern
 - Each test must exercise a specific branch, not just increase line count
 
+### Step 4.5: Handle build/compilation errors
+If `RunTestsWithCoverage` returns a build error after writing tests:
+1. Read the error message to identify the file and line number
+2. Use your standard file editing tools (Edit, Read) to fix the syntax error in the test file
+3. Common causes: missing semicolon, unclosed brace, wrong type name, missing `using` statement
+4. After fixing, re-run `RunTestsWithCoverage` before continuing
+5. If the same test fails to compile 3 times, remove it with Edit and move on to the next uncovered branch
+
+**Do NOT call `AppendTestCode` to fix errors** — use Edit to surgically fix the broken line instead.
+
 ### Step 5: Re-run and check batch-level progress
 Call `RunTestsWithCoverage` **once** with the same broad filter.
 Call `GetFileCoverage` for **each file in the batch** to check per-file progress.

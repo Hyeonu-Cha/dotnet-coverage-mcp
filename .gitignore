@@ -1,7 +1,8 @@
 .vs/
 obj/
 bin/
-.coverage-state
-.coverage-prev.xml
+.mcp-coverage/
+TestResults*/
+coveragereport*/
 
 *.user

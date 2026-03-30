@@ -13,7 +13,11 @@ Unit tests isolate the class under test by mocking **all** injected dependencies
 - Verify mock interactions only when the interaction IS the behavior being tested
 - Avoid over-verification — don't assert that every mock was called
 
-## Test Structure (NUnit)
+## Test Structure
+
+**IMPORTANT:** Adapt lifecycle patterns to the detected test framework. Do NOT mix frameworks.
+
+### NUnit
 ```csharp
 [TestFixture]
 public class ExampleServiceTests
@@ -29,6 +33,65 @@ public class ExampleServiceTests
         _loggerMock = new Mock<ILogger<ExampleService>>();
         _sut = new ExampleService(_repositoryMock.Object, _loggerMock.Object);
     }
+
+    [Test]
+    public void MethodName_Condition_ExpectedResult() { }
+
+    [TestCase(1, "input")]
+    [TestCase(2, "other")]
+    public void MethodName_DataDriven_ExpectedResult(int id, string input) { }
+}
+```
+
+### xUnit
+```csharp
+public class ExampleServiceTests
+{
+    private readonly Mock<IRepository> _repositoryMock;
+    private readonly Mock<ILogger<ExampleService>> _loggerMock;
+    private readonly ExampleService _sut;
+
+    public ExampleServiceTests()
+    {
+        _repositoryMock = new Mock<IRepository>();
+        _loggerMock = new Mock<ILogger<ExampleService>>();
+        _sut = new ExampleService(_repositoryMock.Object, _loggerMock.Object);
+    }
+
+    [Fact]
+    public void MethodName_Condition_ExpectedResult() { }
+
+    [Theory]
+    [InlineData(1, "input")]
+    [InlineData(2, "other")]
+    public void MethodName_DataDriven_ExpectedResult(int id, string input) { }
+}
+```
+
+### MSTest
+```csharp
+[TestClass]
+public class ExampleServiceTests
+{
+    private Mock<IRepository> _repositoryMock;
+    private Mock<ILogger<ExampleService>> _loggerMock;
+    private ExampleService _sut;
+
+    [TestInitialize]
+    public void SetUp()
+    {
+        _repositoryMock = new Mock<IRepository>();
+        _loggerMock = new Mock<ILogger<ExampleService>>();
+        _sut = new ExampleService(_repositoryMock.Object, _loggerMock.Object);
+    }
+
+    [TestMethod]
+    public void MethodName_Condition_ExpectedResult() { }
+
+    [DataTestMethod]
+    [DataRow(1, "input")]
+    [DataRow(2, "other")]
+    public void MethodName_DataDriven_ExpectedResult(int id, string input) { }
 }
 ```
 
@@ -36,7 +99,7 @@ public class ExampleServiceTests
 - One class per test file
 - Test name: `MethodName_Condition_ExpectedResult`
 - Max 1–3 assertions per test
-- Use `[TestCase]` for data-driven variations
-- Separate `[Test]` methods when mock setups differ
+- Use data-driven attributes for input variations (`[TestCase]` NUnit, `[InlineData]` xUnit, `[DataRow]` MSTest)
+- Separate test methods when mock setups differ
 - No real file system, network, or database access
 - No `Thread.Sleep` or time-dependent tests — inject `ITimeProvider` if needed

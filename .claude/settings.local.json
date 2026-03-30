@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr:*)",
+      "Bash(where gh:*)",
+      "Bash(dotnet build:*)",
+      "Bash(cp:*)"
+    ]
+  }
+}
