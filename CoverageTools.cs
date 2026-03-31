@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -9,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using ModelContextProtocol.Server;
@@ -17,6 +19,11 @@ using ModelContextProtocol.Server;
 public class CoverageTools
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
+
+    /// <summary>Per-file locks to prevent concurrent AppendTestCode from losing each other's writes.</summary>
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new();
+
+    private const int ReportGeneratorTimeoutMs = 60_000; // 60 seconds
 
     // --- 1. RunTestsWithCoverage (async, deadlock-safe) ---
 
@@ -41,12 +48,14 @@ public class CoverageTools
         var className = StripTestSuffix(filter.Split('.').Last());
 
         var restoreFlag = forceRestore ? "" : "--no-restore ";
-        var args = $"test \"{testProjectPath}\" " +
+        var escapedProjectPath = EscapeProcessArg(testProjectPath);
+        var escapedResultsDir = EscapeProcessArg(resultsDir);
+        var args = $"test {escapedProjectPath} " +
                    restoreFlag +
                    $"--blame-hang-timeout 30s " +
                    $"--filter \"FullyQualifiedName{filterOp}{filter}\" " +
                    $"--collect:\"XPlat Code Coverage\" " +
-                   $"--results-directory \"{resultsDir}\"";
+                   $"--results-directory {escapedResultsDir}";
 
         // Only scope coverage to a single class when filter looks class-specific (no wildcards, no '*')
         // Skip /p:Include for broad filters to collect coverage across all source files
@@ -72,10 +81,11 @@ public class CoverageTools
         await process.WaitForExitAsync();
 
         if (process.ExitCode != 0)
-            return $"Test run failed (code {process.ExitCode}). Error: {error}\nOutput: {output}";
+            return JsonError("buildError", $"Test run failed (code {process.ExitCode}). Error: {error}\nOutput: {output}");
 
         var xmlPaths = Directory.GetFiles(resultsDir, "coverage.cobertura.xml", SearchOption.AllDirectories);
-        if (xmlPaths.Length == 0) return "No coverage XML found.\n" + output;
+        if (xmlPaths.Length == 0)
+            return JsonError("noCoverage", "No coverage XML found.\n" + output);
 
         var xmlPath = xmlPaths[0];
 
@@ -87,10 +97,12 @@ public class CoverageTools
         AtomicWriteFile(Path.Combine(stateDir, $".coverage-state-{sessionKey}"), xmlPath);
         AtomicWriteFile(Path.Combine(stateDir, ".coverage-state"), xmlPath);
 
+        var escapedXmlPath = EscapeProcessArg(xmlPath);
+        var escapedReportDir = EscapeProcessArg(reportDir);
         var reportPsi = new ProcessStartInfo
         {
             FileName = "reportgenerator",
-            Arguments = $"-reports:\"{xmlPath}\" -targetdir:\"{reportDir}\" -reporttypes:JsonSummary",
+            Arguments = $"-reports:{escapedXmlPath} -targetdir:{escapedReportDir} -reporttypes:JsonSummary",
             WorkingDirectory = workingDir,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -98,15 +110,29 @@ public class CoverageTools
         };
 
         using var rp = Process.Start(reportPsi) ?? throw new Exception("Failed to start reportgenerator");
-        await rp.StandardOutput.ReadToEndAsync();
-        await rp.StandardError.ReadToEndAsync();
-        await rp.WaitForExitAsync();
+        var rpOutTask = rp.StandardOutput.ReadToEndAsync();
+        var rpErrTask = rp.StandardError.ReadToEndAsync();
+
+        // Timeout reportgenerator to prevent indefinite hangs (corrupted XML, disk full, etc.)
+        using var cts = new CancellationTokenSource(ReportGeneratorTimeoutMs);
+        try
+        {
+            await rp.WaitForExitAsync(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            try { rp.Kill(entireProcessTree: true); } catch { }
+            return JsonError("timeout", $"reportgenerator timed out after {ReportGeneratorTimeoutMs / 1000}s. Cobertura XML is still available at: {xmlPath}");
+        }
+
+        await rpOutTask;
+        await rpErrTask;
 
         var summaryPath = Path.Combine(reportDir, "Summary.json");
 
         return File.Exists(summaryPath)
             ? $"Tests completed.\nCoverage JSON at: {summaryPath}\nCobertura XML at: {xmlPath}\nOutput: {output}"
-            : "Report generation failed.\n" + output;
+            : JsonError("reportFailed", "Report generation failed.\n" + output);
     }
 
     // --- 2. GetCoverageSummary ---
@@ -116,7 +142,7 @@ public class CoverageTools
     public string GetCoverageSummary(string summaryJsonPath)
     {
         if (!File.Exists(summaryJsonPath))
-            return JsonError($"Summary.json not found: {summaryJsonPath}");
+            return JsonError("fileNotFound", $"Summary.json not found: {summaryJsonPath}");
 
         try
         {
@@ -125,7 +151,7 @@ public class CoverageTools
 
             var assemblies = root?["coverage"]?["assemblies"]?.AsArray();
             if (assemblies == null)
-                return JsonError("Unexpected Summary.json structure — could not find coverage.assemblies.");
+                return JsonError("parseFailed", "Unexpected Summary.json structure — could not find coverage.assemblies.");
 
             var result = new List<object>();
 
@@ -172,7 +198,7 @@ public class CoverageTools
         }
         catch (Exception ex)
         {
-            return JsonError($"Failed to parse Summary.json: {ex.Message}");
+            return JsonError("parseFailed", $"Failed to parse Summary.json: {ex.Message}");
         }
     }
 
@@ -184,7 +210,7 @@ public class CoverageTools
     {
         coberturaXmlPath = ResolveCoberturaPath(coberturaXmlPath, sessionId) ?? coberturaXmlPath;
         if (!File.Exists(coberturaXmlPath))
-            return JsonError("Cobertura XML not found and no .coverage-state fallback available.");
+            return JsonError("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
 
         try
         {
@@ -195,7 +221,7 @@ public class CoverageTools
                 .ToList();
 
             if (matchedMethods.Count == 0)
-                return JsonError($"No method matching '{methodName}' found in coverage report.");
+                return JsonError("noMatch", $"No method matching '{methodName}' found in coverage report.");
 
             var results = matchedMethods.Select(method =>
             {
@@ -228,60 +254,71 @@ public class CoverageTools
         }
         catch (Exception ex)
         {
-            return JsonError($"Failed to parse Cobertura XML: {ex.Message}");
+            return JsonError("parseFailed", $"Failed to parse Cobertura XML: {ex.Message}");
         }
     }
 
-    // --- 4. AppendTestCode ---
+    // --- 4. AppendTestCode (file-locked, atomic writes) ---
 
     [McpServerTool]
-    [Description("Insert or append C# test code into a test file. Use insertAfterAnchor to place code after a specific string, or omit to append to end of file.")]
-    public string AppendTestCode(string testFilePath, string codeToAppend, string? insertAfterAnchor = null)
+    [Description("Insert or append C# test code into a test file. Use insertAfterAnchor to place code after a specific string, or omit to append to end of file. Uses file-level locking to prevent concurrent writes from losing changes.")]
+    public async Task<string> AppendTestCode(string testFilePath, string codeToAppend, string? insertAfterAnchor = null)
     {
         if (!File.Exists(testFilePath))
-            return JsonError($"Test file not found: {testFilePath}");
+            return JsonError("fileNotFound", $"Test file not found: {testFilePath}");
 
-        var content = File.ReadAllText(testFilePath).TrimEnd();
-
-        if (insertAfterAnchor != null)
+        // Acquire per-file lock to prevent concurrent appends from losing each other's writes
+        var normalizedPath = Path.GetFullPath(testFilePath).ToLowerInvariant();
+        var fileLock = FileLocks.GetOrAdd(normalizedPath, _ => new SemaphoreSlim(1, 1));
+        await fileLock.WaitAsync();
+        try
         {
-            // Try exact match first
-            var idx = content.LastIndexOf(insertAfterAnchor, StringComparison.Ordinal);
+            var content = File.ReadAllText(testFilePath).TrimEnd();
 
-            // Fallback: whitespace-normalized match (collapse runs of whitespace to single space)
-            if (idx < 0)
+            if (insertAfterAnchor != null)
             {
-                var normalizedAnchor = NormalizeWhitespace(insertAfterAnchor);
-                var normalizedContent = NormalizeWhitespace(content);
-                var normalizedIdx = normalizedContent.LastIndexOf(normalizedAnchor, StringComparison.Ordinal);
+                // Try exact match first
+                var idx = content.LastIndexOf(insertAfterAnchor, StringComparison.Ordinal);
 
-                if (normalizedIdx >= 0)
+                // Fallback: whitespace-normalized match (collapse runs of whitespace to single space)
+                if (idx < 0)
                 {
-                    // Map normalized position back to original content
-                    idx = MapNormalizedPosition(content, normalizedIdx, normalizedAnchor.Length, out var matchLength);
-                    if (idx >= 0)
+                    var normalizedAnchor = NormalizeWhitespace(insertAfterAnchor);
+                    var normalizedContent = NormalizeWhitespace(content);
+                    var normalizedIdx = normalizedContent.LastIndexOf(normalizedAnchor, StringComparison.Ordinal);
+
+                    if (normalizedIdx >= 0)
                     {
-                        var insertPos = idx + matchLength;
-                        var newContent = content[..insertPos] + "\n\n" + codeToAppend.Trim() + "\n" + content[insertPos..] + "\n";
-                        AtomicWriteFile(testFilePath, newContent);
-                        return $"Successfully inserted after anchor (whitespace-normalized match) in {testFilePath}.\nNew file length: {newContent.Length} chars";
+                        // Map normalized position back to original content
+                        idx = MapNormalizedPosition(content, normalizedIdx, normalizedAnchor.Length, out var matchLength);
+                        if (idx >= 0)
+                        {
+                            var insertPos = idx + matchLength;
+                            var newContent = content[..insertPos] + "\n\n" + codeToAppend.Trim() + "\n" + content[insertPos..] + "\n";
+                            AtomicWriteFile(testFilePath, newContent);
+                            return $"Successfully inserted after anchor (whitespace-normalized match) in {testFilePath}.\nNew file length: {newContent.Length} chars";
+                        }
                     }
+
+                    return JsonError("anchorNotFound", $"Anchor not found in file (tried exact and whitespace-normalized match): \"{insertAfterAnchor}\"");
                 }
 
-                return JsonError($"Anchor not found in file (tried exact and whitespace-normalized match): \"{insertAfterAnchor}\"");
+                {
+                    var insertPos = idx + insertAfterAnchor.Length;
+                    var newContent = content[..insertPos] + "\n\n" + codeToAppend.Trim() + "\n" + content[insertPos..] + "\n";
+                    AtomicWriteFile(testFilePath, newContent);
+                    return $"Successfully inserted after anchor in {testFilePath}.\nNew file length: {newContent.Length} chars";
+                }
             }
 
-            {
-                var insertPos = idx + insertAfterAnchor.Length;
-                var newContent = content[..insertPos] + "\n\n" + codeToAppend.Trim() + "\n" + content[insertPos..] + "\n";
-                AtomicWriteFile(testFilePath, newContent);
-                return $"Successfully inserted after anchor in {testFilePath}.\nNew file length: {newContent.Length} chars";
-            }
+            var appended = content + "\n\n" + codeToAppend.Trim() + "\n";
+            AtomicWriteFile(testFilePath, appended);
+            return $"Successfully appended to {testFilePath}.\nAdded:\n{codeToAppend}\nNew file length: {appended.Length} chars";
         }
-
-        var appended = content + "\n\n" + codeToAppend.Trim() + "\n";
-        AtomicWriteFile(testFilePath, appended);
-        return $"Successfully appended to {testFilePath}.\nAdded:\n{codeToAppend}\nNew file length: {appended.Length} chars";
+        finally
+        {
+            fileLock.Release();
+        }
     }
 
     // --- 5. GetCoverageDiff (self-healing, duplicate-safe, detects removed methods) ---
@@ -292,7 +329,7 @@ public class CoverageTools
     {
         coberturaXmlPath = ResolveCoberturaPath(coberturaXmlPath, sessionId) ?? coberturaXmlPath;
         if (!File.Exists(coberturaXmlPath))
-            return JsonError("Cobertura XML not found and no .coverage-state fallback available.");
+            return JsonError("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
 
         workingDir ??= Path.GetDirectoryName(coberturaXmlPath) ?? Directory.GetCurrentDirectory();
         var stateDir = Path.Combine(workingDir, ".mcp-coverage");
@@ -411,7 +448,7 @@ public class CoverageTools
         }
         catch (Exception ex)
         {
-            return JsonError($"Failed to parse coverage XML: {ex.Message}");
+            return JsonError("parseFailed", $"Failed to parse coverage XML: {ex.Message}");
         }
     }
 
@@ -423,7 +460,7 @@ public class CoverageTools
     {
         coberturaXmlPath = ResolveCoberturaPath(coberturaXmlPath, sessionId) ?? coberturaXmlPath;
         if (!File.Exists(coberturaXmlPath))
-            return JsonError("Cobertura XML not found and no .coverage-state fallback available.");
+            return JsonError("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
 
         try
         {
@@ -441,7 +478,7 @@ public class CoverageTools
                 .ToList();
 
             if (matchedClasses.Count == 0)
-                return JsonError($"No classes found for source file '{sourceFileName}' in coverage report.");
+                return JsonError("noMatch", $"No classes found for source file '{sourceFileName}' in coverage report.");
 
             var classes = new List<object>();
             var allMeetTarget = true;
@@ -486,7 +523,7 @@ public class CoverageTools
         }
         catch (Exception ex)
         {
-            return JsonError($"Failed to parse Cobertura XML: {ex.Message}");
+            return JsonError("parseFailed", $"Failed to parse Cobertura XML: {ex.Message}");
         }
     }
 
@@ -528,7 +565,7 @@ public class CoverageTools
         }
         else
         {
-            return JsonError($"Path not found or not a .cs file, .csproj file, or directory: {path}");
+            return JsonError("fileNotFound", $"Path not found or not a .cs file, .csproj file, or directory: {path}");
         }
 
         // Build file metadata
@@ -536,10 +573,7 @@ public class CoverageTools
         {
             var content = File.ReadAllText(f);
             var lines = content.Split('\n').Length;
-            // Count public methods by simple pattern match
-            var methodCount = System.Text.RegularExpressions.Regex.Matches(
-                content, @"public\s+(?:(?:async\s+)?(?:virtual\s+)?(?:override\s+)?(?:static\s+)?)" +
-                         @"[\w<>\[\]?,\s]+\s+\w+\s*\(").Count;
+            var methodCount = CountPublicMethods(content);
             return new { path = f, lines, methodCount };
         })
         .OrderBy(f => f.lines) // smallest files first for efficient batching
@@ -595,6 +629,53 @@ public class CoverageTools
         return JsonSerializer.Serialize(result, JsonOptions);
     }
 
+    // --- 8. CleanupSession ---
+
+    [McpServerTool]
+    [Description("Remove stale state files from .mcp-coverage/. Call with a specific sessionId to clean up that session's files, or omit to remove all state files older than maxAgeMinutes (default 120). Returns count of files removed.")]
+    public string CleanupSession(string workingDir, string? sessionId = null, int maxAgeMinutes = 120)
+    {
+        var stateDir = Path.Combine(workingDir, ".mcp-coverage");
+        if (!Directory.Exists(stateDir))
+            return JsonSerializer.Serialize(new { removed = 0, message = "No .mcp-coverage directory found." }, JsonOptions);
+
+        var removed = 0;
+
+        if (sessionId != null)
+        {
+            // Clean up specific session's files
+            var key = SessionKey(sessionId);
+            string[] patterns = [$".coverage-state-{key}", $".coverage-prev-{key}.xml"];
+            foreach (var pattern in patterns)
+            {
+                var filePath = Path.Combine(stateDir, pattern);
+                if (File.Exists(filePath))
+                {
+                    try { File.Delete(filePath); removed++; } catch { }
+                }
+            }
+        }
+        else
+        {
+            // Age-based cleanup: remove files older than maxAgeMinutes
+            var cutoff = DateTime.UtcNow.AddMinutes(-maxAgeMinutes);
+            foreach (var file in Directory.GetFiles(stateDir))
+            {
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(file) < cutoff)
+                    {
+                        File.Delete(file);
+                        removed++;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        return JsonSerializer.Serialize(new { removed }, JsonOptions);
+    }
+
     // --- Shared helpers ---
 
     /// <summary>
@@ -635,8 +716,12 @@ public class CoverageTools
         return null;
     }
 
-    private static string JsonError(string message) =>
-        JsonSerializer.Serialize(new { error = message }, JsonOptions);
+    /// <summary>
+    /// Structured error with errorType for agent recovery decisions.
+    /// errorType values: fileNotFound, parseFailed, buildError, noCoverage, reportFailed, timeout, noMatch, anchorNotFound
+    /// </summary>
+    private static string JsonError(string errorType, string message) =>
+        JsonSerializer.Serialize(new { error = message, errorType }, JsonOptions);
 
     private static bool IsExcludedPath(string filePath)
     {
@@ -689,6 +774,35 @@ public class CoverageTools
             try { File.Delete(tempPath); } catch { }
             throw;
         }
+    }
+
+    /// <summary>
+    /// Escape a path for safe use as a process argument.
+    /// Wraps in quotes and escapes embedded quotes.
+    /// </summary>
+    private static string EscapeProcessArg(string arg)
+    {
+        // Escape any embedded double quotes, then wrap in double quotes
+        var escaped = arg.Replace("\\\"", "\\\\\"").Replace("\"", "\\\"");
+        return $"\"{escaped}\"";
+    }
+
+    /// <summary>
+    /// Count public methods in C# source code, skipping string literals and comments.
+    /// More accurate than a naive regex — avoids counting matches inside strings/comments.
+    /// </summary>
+    private static int CountPublicMethods(string content)
+    {
+        // Strip single-line comments, multi-line comments, and string literals before counting
+        var stripped = Regex.Replace(content, @"//[^\n]*", "");                      // single-line comments
+        stripped = Regex.Replace(stripped, @"/\*[\s\S]*?\*/", "");                    // multi-line comments
+        stripped = Regex.Replace(stripped, "@\"(?:\"\"|[^\"])*\"", "\"\"");           // verbatim strings
+        stripped = Regex.Replace(stripped, "\"(?:\\\\.|[^\"\\\\])*\"", "\"\"");       // regular strings
+
+        return Regex.Matches(
+            stripped,
+            @"public\s+(?:(?:async|virtual|override|static|sealed|new|abstract)\s+)*" +
+            @"[\w<>\[\]?,\s]+\s+\w+\s*\(").Count;
     }
 
     /// <summary>
