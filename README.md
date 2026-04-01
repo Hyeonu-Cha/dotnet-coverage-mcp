@@ -195,7 +195,8 @@ The skills support NUnit, xUnit, and MSTest with framework-agnostic reference do
 
 ## Dependencies
 
-| Package | Version |
-|---------|---------|
-| `Microsoft.Extensions.Hosting` | 9.0.0 |
-| `ModelContextProtocol` | 1.1.0 |
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `Microsoft.Extensions.Hosting` | 9.0.0 | DI and hosting |
+| `ModelContextProtocol` | 1.1.0 | MCP server framework |
+| `Microsoft.CodeAnalysis.CSharp` | 5.3.0 | Roslyn AST for safe code insertion and accurate method counting (~15MB) |
