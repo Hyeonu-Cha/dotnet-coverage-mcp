@@ -23,8 +23,9 @@ public class CoverageTools
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
 
-    /// <summary>Per-file locks to prevent concurrent AppendTestCode from losing each other's writes.</summary>
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new();
+    /// <summary>Per-file locks with last-access tracking to prevent unbounded growth.</summary>
+    private static readonly ConcurrentDictionary<string, (SemaphoreSlim Lock, DateTime LastAccess)> FileLocks = new();
+    private const int MaxFileLocks = 200;
 
     private const int ReportGeneratorTimeoutMs = 60_000; // 60 seconds
 
@@ -40,6 +41,11 @@ public class CoverageTools
         string? sessionId = null,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(testProjectPath))
+            return JsonError("invalidParameter", "testProjectPath must not be empty.");
+        if (string.IsNullOrWhiteSpace(filter))
+            return JsonError("invalidParameter", "filter must not be empty.");
+
         workingDir ??= Path.GetDirectoryName(testProjectPath) ?? Directory.GetCurrentDirectory();
         var suffix = sessionId != null ? $"-{SessionKey(sessionId)}" : "";
         var resultsDir = Path.Combine(workingDir, $"TestResults{suffix}");
@@ -281,8 +287,12 @@ public class CoverageTools
             return JsonError("fileNotFound", $"Test file not found: {testFilePath}");
 
         var normalizedPath = Path.GetFullPath(testFilePath).ToLowerInvariant();
-        var fileLock = FileLocks.GetOrAdd(normalizedPath, _ => new SemaphoreSlim(1, 1));
-        await fileLock.WaitAsync();
+        var entry = FileLocks.AddOrUpdate(
+            normalizedPath,
+            _ => (new SemaphoreSlim(1, 1), DateTime.UtcNow),
+            (_, existing) => (existing.Lock, DateTime.UtcNow));
+        EvictStaleLocks();
+        await entry.Lock.WaitAsync();
         try
         {
             var content = File.ReadAllText(testFilePath);
@@ -336,7 +346,7 @@ public class CoverageTools
         }
         finally
         {
-            fileLock.Release();
+            entry.Lock.Release();
         }
     }
 
@@ -477,6 +487,9 @@ public class CoverageTools
     [Description("Get coverage for a single source file from Cobertura XML. Returns per-class and per-method rates with allMeetTarget (true when all classes meet targetRate for both line and branch). Instant — just XML parsing. Pass sessionId to resolve the correct coverage state when multiple agents run concurrently.")]
     public string GetFileCoverage(string coberturaXmlPath, string sourceFileName, string? sessionId = null, double targetRate = 0.8)
     {
+        if (targetRate < 0.0 || targetRate > 1.0)
+            return JsonError("invalidParameter", "targetRate must be between 0.0 and 1.0.");
+
         coberturaXmlPath = ResolveCoberturaPath(coberturaXmlPath, sessionId) ?? coberturaXmlPath;
         if (!File.Exists(coberturaXmlPath))
             return JsonError("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
@@ -552,6 +565,9 @@ public class CoverageTools
     [Description("Discover .cs source files from a file path, folder, or .csproj project. Returns file metadata (lines, methodCount) and smart batches grouped by lineBudget. Small files are grouped together, large files get their own batch.")]
     public string GetSourceFiles(string path, int lineBudget = 300)
     {
+        if (lineBudget < 1)
+            return JsonError("invalidParameter", "lineBudget must be at least 1.");
+
         List<string> filePaths;
         string scope;
         string? scopePath = null;
@@ -587,14 +603,17 @@ public class CoverageTools
             return JsonError("fileNotFound", $"Path not found or not a .cs file, .csproj file, or directory: {path}");
         }
 
-        // Build file metadata (single read: Roslyn parse gives both line count and method count)
-        var files = filePaths.Select(f =>
+        // Build file metadata in parallel (Roslyn parse per file)
+        var bag = new ConcurrentBag<(string path, int lines, int methodCount)>();
+        Parallel.ForEach(filePaths, f =>
         {
             var (lines, methodCount) = GetFileMetadata(f);
-            return new { path = f, lines, methodCount };
-        })
-        .OrderBy(f => f.lines) // smallest files first for efficient batching
-        .ToList();
+            bag.Add((f, lines, methodCount));
+        });
+        var files = bag
+            .OrderBy(f => f.lines) // smallest files first for efficient batching
+            .Select(f => new { f.path, f.lines, f.methodCount })
+            .ToList();
 
         // Build batches based on line budget
         var batches = new List<List<object>>();
@@ -819,12 +838,38 @@ public class CoverageTools
     }
 
     /// <summary>
+    /// Evict oldest file locks when the dictionary exceeds MaxFileLocks.
+    /// Only evicts locks that are not currently held (CurrentCount == 1).
+    /// </summary>
+    private static void EvictStaleLocks()
+    {
+        if (FileLocks.Count <= MaxFileLocks) return;
+
+        var candidates = FileLocks
+            .Where(kv => kv.Value.Lock.CurrentCount == 1) // not currently held
+            .OrderBy(kv => kv.Value.LastAccess)
+            .Take(FileLocks.Count - MaxFileLocks + 20) // evict batch to avoid frequent eviction
+            .Select(kv => kv.Key)
+            .ToList();
+
+        foreach (var key in candidates)
+        {
+            if (FileLocks.TryRemove(key, out var removed))
+                removed.Lock.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Escape a path for safe use as a process argument.
-    /// Wraps in quotes and escapes embedded quotes.
+    /// Handles embedded quotes and trailing backslashes before the closing quote.
     /// </summary>
     private static string EscapeProcessArg(string arg)
     {
-        return "\"" + arg.Replace("\"", "\\\"") + "\"";
+        // Trailing backslash before closing quote is interpreted as escaping the quote on Windows
+        var escaped = arg.Replace("\"", "\\\"");
+        if (escaped.EndsWith('\\'))
+            escaped += "\\";
+        return "\"" + escaped + "\"";
     }
 
     /// <summary>
