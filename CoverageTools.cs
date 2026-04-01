@@ -13,6 +13,9 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using ModelContextProtocol.Server;
 
 [McpServerToolType]
@@ -20,8 +23,9 @@ public class CoverageTools
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
 
-    /// <summary>Per-file locks to prevent concurrent AppendTestCode from losing each other's writes.</summary>
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new();
+    /// <summary>Per-file locks with last-access tracking to prevent unbounded growth.</summary>
+    private static readonly ConcurrentDictionary<string, (SemaphoreSlim Lock, DateTime LastAccess)> FileLocks = new();
+    private const int MaxFileLocks = 200;
 
     private const int ReportGeneratorTimeoutMs = 60_000; // 60 seconds
 
@@ -37,6 +41,11 @@ public class CoverageTools
         string? sessionId = null,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(testProjectPath))
+            return JsonError("invalidParameter", "testProjectPath must not be empty.");
+        if (string.IsNullOrWhiteSpace(filter))
+            return JsonError("invalidParameter", "filter must not be empty.");
+
         workingDir ??= Path.GetDirectoryName(testProjectPath) ?? Directory.GetCurrentDirectory();
         var suffix = sessionId != null ? $"-{SessionKey(sessionId)}" : "";
         var resultsDir = Path.Combine(workingDir, $"TestResults{suffix}");
@@ -268,29 +277,40 @@ public class CoverageTools
         }
     }
 
-    // --- 4. AppendTestCode (file-locked, atomic writes) ---
+    // --- 4. AppendTestCode (Roslyn AST primary, string fallback, file-locked, atomic writes) ---
 
     [McpServerTool]
-    [Description("Insert or append C# test code into a test file. Use insertAfterAnchor to place code after a specific string, or omit to append to end of file. Uses file-level locking to prevent concurrent writes from losing changes.")]
+    [Description("Insert or append C# test code into a test file. Use insertAfterAnchor to place code after a specific method or string, or omit to append at the end of the last class. Uses Roslyn AST for safe insertion with string-based fallback. File-level locking prevents concurrent write loss.")]
     public async Task<string> AppendTestCode(string testFilePath, string codeToAppend, string? insertAfterAnchor = null)
     {
         if (!File.Exists(testFilePath))
             return JsonError("fileNotFound", $"Test file not found: {testFilePath}");
 
-        // Acquire per-file lock to prevent concurrent appends from losing each other's writes
         var normalizedPath = Path.GetFullPath(testFilePath).ToLowerInvariant();
-        var fileLock = FileLocks.GetOrAdd(normalizedPath, _ => new SemaphoreSlim(1, 1));
-        await fileLock.WaitAsync();
+        var entry = FileLocks.AddOrUpdate(
+            normalizedPath,
+            _ => (new SemaphoreSlim(1, 1), DateTime.UtcNow),
+            (_, existing) => (existing.Lock, DateTime.UtcNow));
+        EvictStaleLocks();
+        await entry.Lock.WaitAsync();
         try
         {
-            var content = File.ReadAllText(testFilePath).TrimEnd();
+            var content = File.ReadAllText(testFilePath);
+
+            // Primary: Roslyn AST insertion (safe, structure-aware)
+            if (TryRoslynInsert(content, codeToAppend, insertAfterAnchor, out var roslynResult))
+            {
+                AtomicWriteFile(testFilePath, roslynResult);
+                return $"Successfully inserted via Roslyn AST in {testFilePath}.\nNew file length: {roslynResult.Length} chars";
+            }
+
+            // Fallback: string-based insertion (handles files with syntax errors)
+            content = content.TrimEnd();
 
             if (insertAfterAnchor != null)
             {
-                // Try exact match first
                 var idx = content.LastIndexOf(insertAfterAnchor, StringComparison.Ordinal);
 
-                // Fallback: whitespace-normalized match (collapse runs of whitespace to single space)
                 if (idx < 0)
                 {
                     var normalizedAnchor = NormalizeWhitespace(insertAfterAnchor);
@@ -299,35 +319,34 @@ public class CoverageTools
 
                     if (normalizedIdx >= 0)
                     {
-                        // Map normalized position back to original content
                         idx = MapNormalizedPosition(content, normalizedIdx, normalizedAnchor.Length, out var matchLength);
                         if (idx >= 0)
                         {
                             var insertPos = idx + matchLength;
                             var newContent = content[..insertPos] + "\n\n" + codeToAppend.Trim() + "\n" + content[insertPos..] + "\n";
                             AtomicWriteFile(testFilePath, newContent);
-                            return $"Successfully inserted after anchor (whitespace-normalized match) in {testFilePath}.\nNew file length: {newContent.Length} chars";
+                            return $"Successfully inserted after anchor (string fallback, whitespace-normalized) in {testFilePath}.\nNew file length: {newContent.Length} chars";
                         }
                     }
 
-                    return JsonError("anchorNotFound", $"Anchor not found in file (tried exact and whitespace-normalized match): \"{insertAfterAnchor}\"");
+                    return JsonError("anchorNotFound", $"Anchor not found (tried Roslyn AST, exact match, whitespace-normalized): \"{insertAfterAnchor}\"");
                 }
 
                 {
                     var insertPos = idx + insertAfterAnchor.Length;
                     var newContent = content[..insertPos] + "\n\n" + codeToAppend.Trim() + "\n" + content[insertPos..] + "\n";
                     AtomicWriteFile(testFilePath, newContent);
-                    return $"Successfully inserted after anchor in {testFilePath}.\nNew file length: {newContent.Length} chars";
+                    return $"Successfully inserted after anchor (string fallback) in {testFilePath}.\nNew file length: {newContent.Length} chars";
                 }
             }
 
             var appended = content + "\n\n" + codeToAppend.Trim() + "\n";
             AtomicWriteFile(testFilePath, appended);
-            return $"Successfully appended to {testFilePath}.\nAdded:\n{codeToAppend}\nNew file length: {appended.Length} chars";
+            return $"Successfully appended (string fallback) to {testFilePath}.\nNew file length: {appended.Length} chars";
         }
         finally
         {
-            fileLock.Release();
+            entry.Lock.Release();
         }
     }
 
@@ -468,6 +487,9 @@ public class CoverageTools
     [Description("Get coverage for a single source file from Cobertura XML. Returns per-class and per-method rates with allMeetTarget (true when all classes meet targetRate for both line and branch). Instant — just XML parsing. Pass sessionId to resolve the correct coverage state when multiple agents run concurrently.")]
     public string GetFileCoverage(string coberturaXmlPath, string sourceFileName, string? sessionId = null, double targetRate = 0.8)
     {
+        if (targetRate < 0.0 || targetRate > 1.0)
+            return JsonError("invalidParameter", "targetRate must be between 0.0 and 1.0.");
+
         coberturaXmlPath = ResolveCoberturaPath(coberturaXmlPath, sessionId) ?? coberturaXmlPath;
         if (!File.Exists(coberturaXmlPath))
             return JsonError("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
@@ -543,6 +565,9 @@ public class CoverageTools
     [Description("Discover .cs source files from a file path, folder, or .csproj project. Returns file metadata (lines, methodCount) and smart batches grouped by lineBudget. Small files are grouped together, large files get their own batch.")]
     public string GetSourceFiles(string path, int lineBudget = 300)
     {
+        if (lineBudget < 1)
+            return JsonError("invalidParameter", "lineBudget must be at least 1.");
+
         List<string> filePaths;
         string scope;
         string? scopePath = null;
@@ -578,16 +603,17 @@ public class CoverageTools
             return JsonError("fileNotFound", $"Path not found or not a .cs file, .csproj file, or directory: {path}");
         }
 
-        // Build file metadata
-        var files = filePaths.Select(f =>
+        // Build file metadata in parallel (Roslyn parse per file)
+        var bag = new ConcurrentBag<(string path, int lines, int methodCount)>();
+        Parallel.ForEach(filePaths, f =>
         {
-            var content = File.ReadAllText(f);
-            var lines = content.Split('\n').Length;
-            var methodCount = CountPublicMethods(content);
-            return new { path = f, lines, methodCount };
-        })
-        .OrderBy(f => f.lines) // smallest files first for efficient batching
-        .ToList();
+            var (lines, methodCount) = GetFileMetadata(f);
+            bag.Add((f, lines, methodCount));
+        });
+        var files = bag
+            .OrderBy(f => f.lines) // smallest files first for efficient batching
+            .Select(f => new { f.path, f.lines, f.methodCount })
+            .ToList();
 
         // Build batches based on line budget
         var batches = new List<List<object>>();
@@ -642,44 +668,69 @@ public class CoverageTools
     // --- 8. CleanupSession ---
 
     [McpServerTool]
-    [Description("Remove stale state files from .mcp-coverage/. Call with a specific sessionId to clean up that session's files, or omit to remove all state files older than maxAgeMinutes (default 120). Returns count of files removed.")]
+    [Description("Remove stale session artifacts. Call with sessionId to clean that session, or omit to remove all artifacts older than maxAgeMinutes (default 120). Cleans state files in .mcp-coverage/ and session-scoped TestResults/coveragereport directories.")]
     public string CleanupSession(string workingDir, string? sessionId = null, int maxAgeMinutes = 120)
     {
-        var stateDir = Path.Combine(workingDir, ".mcp-coverage");
-        if (!Directory.Exists(stateDir))
-            return JsonSerializer.Serialize(new { removed = 0, message = "No .mcp-coverage directory found." }, JsonOptions);
-
         var removed = 0;
 
         if (sessionId != null)
         {
-            // Clean up specific session's files
             var key = SessionKey(sessionId);
-            string[] patterns = [$".coverage-state-{key}", $".coverage-prev-{key}.xml"];
-            foreach (var pattern in patterns)
+
+            // Clean session-scoped state files
+            var stateDir = Path.Combine(workingDir, ".mcp-coverage");
+            if (Directory.Exists(stateDir))
             {
-                var filePath = Path.Combine(stateDir, pattern);
-                if (File.Exists(filePath))
+                string[] stateFiles = [$".coverage-state-{key}", $".coverage-prev-{key}.xml"];
+                foreach (var name in stateFiles)
                 {
-                    try { File.Delete(filePath); removed++; } catch { }
+                    var filePath = Path.Combine(stateDir, name);
+                    if (File.Exists(filePath))
+                    {
+                        try { File.Delete(filePath); removed++; } catch { }
+                    }
                 }
             }
+
+            // Clean session-scoped output directories
+            SafeDelete(Path.Combine(workingDir, $"TestResults-{key}"));
+            SafeDelete(Path.Combine(workingDir, $"coveragereport-{key}"));
         }
         else
         {
-            // Age-based cleanup: remove files older than maxAgeMinutes
-            var cutoff = DateTime.UtcNow.AddMinutes(-maxAgeMinutes);
-            foreach (var file in Directory.GetFiles(stateDir))
+            // Age-based cleanup: state files
+            var stateDir = Path.Combine(workingDir, ".mcp-coverage");
+            if (Directory.Exists(stateDir))
             {
-                try
+                var cutoff = DateTime.UtcNow.AddMinutes(-maxAgeMinutes);
+                foreach (var file in Directory.GetFiles(stateDir))
                 {
-                    if (File.GetLastWriteTimeUtc(file) < cutoff)
+                    try
                     {
-                        File.Delete(file);
+                        if (File.GetLastWriteTimeUtc(file) < cutoff)
+                        {
+                            File.Delete(file);
+                            removed++;
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // Age-based cleanup: session-scoped output directories
+            if (Directory.Exists(workingDir))
+            {
+                var cutoff = DateTime.UtcNow.AddMinutes(-maxAgeMinutes);
+                foreach (var dir in Directory.GetDirectories(workingDir))
+                {
+                    var dirName = Path.GetFileName(dir);
+                    if ((dirName.StartsWith("TestResults-") || dirName.StartsWith("coveragereport-"))
+                        && Directory.GetLastWriteTimeUtc(dir) < cutoff)
+                    {
+                        SafeDelete(dir);
                         removed++;
                     }
                 }
-                catch { }
             }
         }
 
@@ -787,36 +838,142 @@ public class CoverageTools
     }
 
     /// <summary>
-    /// Escape a path for safe use as a process argument.
-    /// Wraps in quotes and escapes embedded quotes.
+    /// Evict oldest file locks when the dictionary exceeds MaxFileLocks.
+    /// Only evicts locks that are not currently held (CurrentCount == 1).
     /// </summary>
-    private static string EscapeProcessArg(string arg)
+    private static void EvictStaleLocks()
     {
-        // Escape any embedded double quotes, then wrap in double quotes
-        var escaped = arg.Replace("\\\"", "\\\\\"").Replace("\"", "\\\"");
-        return $"\"{escaped}\"";
+        if (FileLocks.Count <= MaxFileLocks) return;
+
+        var candidates = FileLocks
+            .Where(kv => kv.Value.Lock.CurrentCount == 1) // not currently held
+            .OrderBy(kv => kv.Value.LastAccess)
+            .Take(FileLocks.Count - MaxFileLocks + 20) // evict batch to avoid frequent eviction
+            .Select(kv => kv.Key)
+            .ToList();
+
+        foreach (var key in candidates)
+        {
+            if (FileLocks.TryRemove(key, out var removed))
+                removed.Lock.Dispose();
+        }
     }
 
     /// <summary>
-    /// Count public methods in C# source code, skipping string literals and comments.
-    /// More accurate than a naive regex — avoids counting matches inside strings/comments.
+    /// Escape a path for safe use as a process argument.
+    /// Handles embedded quotes and trailing backslashes before the closing quote.
     /// </summary>
-    private static int CountPublicMethods(string content)
+    private static string EscapeProcessArg(string arg)
     {
-        // Strip single-line comments, multi-line comments, and string literals before counting
-        var stripped = Regex.Replace(content, @"//[^\n]*", "");                      // single-line comments
-        stripped = Regex.Replace(stripped, @"/\*[\s\S]*?\*/", "");                    // multi-line comments
-        stripped = Regex.Replace(stripped, "@\"(?:\"\"|[^\"])*\"", "\"\"");           // verbatim strings
-        stripped = Regex.Replace(stripped, "\"(?:\\\\.|[^\"\\\\])*\"", "\"\"");       // regular strings
+        // Trailing backslash before closing quote is interpreted as escaping the quote on Windows
+        var escaped = arg.Replace("\"", "\\\"");
+        if (escaped.EndsWith('\\'))
+            escaped += "\\";
+        return "\"" + escaped + "\"";
+    }
 
-        return Regex.Matches(
-            stripped,
-            @"public\s+(?:(?:async|virtual|override|static|sealed|new|abstract)\s+)*" +
-            @"[\w<>\[\]?,\s]+\s+\w+\s*\(").Count;
+    /// <summary>
+    /// Get line count and public method count from a single file read + Roslyn parse.
+    /// </summary>
+    private static (int lines, int methodCount) GetFileMetadata(string filePath)
+    {
+        try
+        {
+            var text = File.ReadAllText(filePath);
+            var lines = text.Split('\n').Length;
+            var tree = CSharpSyntaxTree.ParseText(text);
+            var root = tree.GetCompilationUnitRoot();
+            var methodCount = root.DescendantNodes()
+                .OfType<MethodDeclarationSyntax>()
+                .Count(m => m.Modifiers.Any(SyntaxKind.PublicKeyword));
+            return (Math.Max(lines, 1), methodCount);
+        }
+        catch
+        {
+            return (1, 0);
+        }
+    }
+
+    /// <summary>
+    /// Try to insert code using Roslyn AST manipulation.
+    /// Returns true if successful, false to trigger string-based fallback.
+    /// Preserves all original formatting via ToFullString() trivia preservation.
+    /// </summary>
+    private static bool TryRoslynInsert(string content, string codeToAppend, string? insertAfterAnchor, out string result)
+    {
+        result = "";
+        try
+        {
+            var tree = CSharpSyntaxTree.ParseText(content);
+            var root = tree.GetCompilationUnitRoot();
+
+            // Find the last class/struct/record in the file
+            var targetType = root.DescendantNodes().OfType<TypeDeclarationSyntax>().LastOrDefault();
+            if (targetType == null) return false;
+
+            // Parse codeToAppend as class members by wrapping in a dummy class
+            var wrapperTree = CSharpSyntaxTree.ParseText($"class __RoslynWrapper__ {{\n{codeToAppend}\n}}");
+            var wrapperRoot = wrapperTree.GetCompilationUnitRoot();
+            var wrapperType = wrapperRoot.DescendantNodes().OfType<TypeDeclarationSyntax>().FirstOrDefault();
+            if (wrapperType == null || wrapperType.Members.Count == 0) return false;
+
+            // Check if the parsed members have critical errors (completely unparseable code)
+            var wrapperDiags = wrapperTree.GetDiagnostics()
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .ToList();
+            if (wrapperDiags.Count > 0) return false; // let string fallback handle it
+
+            var newMembers = wrapperType.Members;
+
+            // Detect file's line ending style and add spacing trivia to match
+            var eol = content.Contains("\r\n") ? SyntaxFactory.CarriageReturnLineFeed : SyntaxFactory.LineFeed;
+            var firstMember = newMembers[0];
+            var leadingTrivia = SyntaxFactory.TriviaList(eol, eol);
+            newMembers = newMembers.Replace(firstMember,
+                firstMember.WithLeadingTrivia(leadingTrivia.AddRange(firstMember.GetLeadingTrivia())));
+
+            TypeDeclarationSyntax updatedType;
+
+            if (insertAfterAnchor != null)
+            {
+                // Find the member whose text contains the anchor (last match, like string-based LastIndexOf)
+                var anchorMember = targetType.Members
+                    .LastOrDefault(m => m.ToFullString().Contains(insertAfterAnchor, StringComparison.Ordinal));
+
+                // Try whitespace-normalized match if exact fails
+                if (anchorMember == null)
+                {
+                    var normalizedAnchor = NormalizeWhitespace(insertAfterAnchor);
+                    anchorMember = targetType.Members
+                        .LastOrDefault(m => NormalizeWhitespace(m.ToFullString()).Contains(normalizedAnchor, StringComparison.Ordinal));
+                }
+
+                if (anchorMember == null) return false; // fall to string-based
+
+                var insertIndex = targetType.Members.IndexOf(anchorMember) + 1;
+                var membersList = targetType.Members.ToList();
+                membersList.InsertRange(insertIndex, newMembers);
+                updatedType = targetType.WithMembers(SyntaxFactory.List(membersList));
+            }
+            else
+            {
+                // Append at the end of the class
+                updatedType = targetType.AddMembers([.. newMembers]);
+            }
+
+            var newRoot = root.ReplaceNode(targetType, updatedType);
+            result = newRoot.ToFullString();
+            return true;
+        }
+        catch
+        {
+            return false; // any Roslyn failure → string fallback
+        }
     }
 
     /// <summary>
     /// Collapse all runs of whitespace (spaces, tabs, newlines) into a single space.
+    /// Used by string-based fallback in AppendTestCode and Roslyn anchor matching.
     /// </summary>
     private static string NormalizeWhitespace(string input) =>
         Regex.Replace(input, @"\s+", " ").Trim();
