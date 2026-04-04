@@ -1,26 +1,24 @@
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using ModelContextProtocol.Server;
+using CoverageMcpServer.Services;
 
-class Program
+var builder = Host.CreateApplicationBuilder(args);
+
+builder.Logging.AddConsole(options =>
 {
-    static async Task Main(string[] args)
-    {
-        var builder = Host.CreateApplicationBuilder(args);
+    options.LogToStandardErrorThreshold = LogLevel.Trace;
+});
 
-        builder.Logging.AddConsole(options =>
-        {
-            options.LogToStandardErrorThreshold = LogLevel.Trace;  // Helpful for debugging stdio
-        });
+builder.Services.AddSingleton<IFileService, FileService>();
+builder.Services.AddSingleton<ISessionManager, SessionManager>();
+builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
+builder.Services.AddSingleton<ICoberturaService, CoberturaService>();
+builder.Services.AddSingleton<ICodeInserter, CodeInserter>();
 
-        builder.Services
-            .AddMcpServer()
-            .WithStdioServerTransport()
-            .WithToolsFromAssembly();            // Automatically finds and registers CoverageTools
+builder.Services
+    .AddMcpServer()
+    .WithStdioServerTransport()
+    .WithToolsFromAssembly();
 
-        var host = builder.Build();
-        await host.RunAsync();
-    }
-}
+await builder.Build().RunAsync();
