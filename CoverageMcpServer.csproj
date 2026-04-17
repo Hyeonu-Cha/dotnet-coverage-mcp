@@ -8,6 +8,14 @@
 </PropertyGroup>
 
 <ItemGroup>
+  <InternalsVisibleTo Include="CoverageMcpServer.Tests" />
+</ItemGroup>
+
+<ItemGroup>
+  <Compile Remove="CoverageMcpServer.Tests\**" />
+</ItemGroup>
+
+<ItemGroup>
   <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
   <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
   <PackageReference Include="ModelContextProtocol" Version="1.1.0" />

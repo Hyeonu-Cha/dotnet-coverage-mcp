@@ -1,0 +1,189 @@
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.Extensions.Logging;
+
+namespace CoverageMcpServer.Services;
+
+public interface ISessionManager
+{
+    string ComputeKey(string input);
+    string ComputeSuffix(string? sessionId);
+    string? ResolveCoberturaPath(string coberturaXmlPath, string? sessionId);
+    void SaveCoverageState(string workingDir, string xmlPath, string filter, string? sessionId);
+    int Cleanup(string workingDir, string? sessionId, int maxAgeMinutes);
+}
+
+public class SessionManager : ISessionManager
+{
+    private readonly IFileService _fileService;
+    private readonly ILogger<SessionManager> _logger;
+
+    public SessionManager(IFileService fileService, ILogger<SessionManager> logger)
+    {
+        _fileService = fileService;
+        _logger = logger;
+    }
+
+    public string ComputeKey(string input)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(hash)[..8].ToLowerInvariant();
+    }
+
+    public string ComputeSuffix(string? sessionId) =>
+        sessionId != null ? $"-{ComputeKey(sessionId)}" : "";
+
+    public string? ResolveCoberturaPath(string coberturaXmlPath, string? sessionId)
+    {
+        if (File.Exists(coberturaXmlPath))
+            return coberturaXmlPath;
+
+        // Walk up from the supplied path to find .mcp-coverage/.
+        // The caller may pass an old path inside a deleted TestResults-xxx/ directory,
+        // but .mcp-coverage/ lives at the project root — so we search upward.
+        var dir = Path.GetDirectoryName(coberturaXmlPath) is { Length: > 0 } d
+            ? d
+            : Directory.GetCurrentDirectory();
+
+        const int maxDepth = 20;
+        for (var depth = 0; dir != null && depth < maxDepth; depth++)
+        {
+            var stateDir = Path.Combine(dir, ".mcp-coverage");
+            if (Directory.Exists(stateDir))
+            {
+                var resolved = TryResolveFromStateDir(stateDir, sessionId);
+                if (resolved != null)
+                    return resolved;
+            }
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        return null;
+    }
+
+    private string? TryResolveFromStateDir(string stateDir, string? sessionId)
+    {
+        if (sessionId != null)
+        {
+            var scopedStateFile = Path.Combine(stateDir, $".coverage-state-{ComputeKey(sessionId)}");
+            if (File.Exists(scopedStateFile))
+            {
+                var resolved = File.ReadAllText(scopedStateFile).Trim();
+                if (File.Exists(resolved))
+                    return resolved;
+            }
+        }
+
+        var stateFile = Path.Combine(stateDir, ".coverage-state");
+        if (File.Exists(stateFile))
+        {
+            var resolved = File.ReadAllText(stateFile).Trim();
+            if (File.Exists(resolved))
+                return resolved;
+        }
+
+        return null;
+    }
+
+    public void SaveCoverageState(string workingDir, string xmlPath, string filter, string? sessionId)
+    {
+        var stateDir = Path.Combine(workingDir, ".mcp-coverage");
+        Directory.CreateDirectory(stateDir);
+
+        // Always save a filter-keyed state file so ResolveCoberturaPath can find it
+        // when sessionId matches the filter (original behavior)
+        var filterKey = ComputeKey(filter);
+        _fileService.AtomicWriteFile(Path.Combine(stateDir, $".coverage-state-{filterKey}"), xmlPath);
+
+        // If sessionId is different from filter, also save a session-keyed file
+        // so other tools can resolve via their sessionId parameter
+        if (sessionId != null)
+        {
+            var sessionKey = ComputeKey(sessionId);
+            if (sessionKey != filterKey)
+                _fileService.AtomicWriteFile(Path.Combine(stateDir, $".coverage-state-{sessionKey}"), xmlPath);
+        }
+
+        // Global fallback
+        _fileService.AtomicWriteFile(Path.Combine(stateDir, ".coverage-state"), xmlPath);
+    }
+
+    public int Cleanup(string workingDir, string? sessionId, int maxAgeMinutes)
+    {
+        var removed = 0;
+
+        if (sessionId != null)
+        {
+            var key = ComputeKey(sessionId);
+
+            var stateDir = Path.Combine(workingDir, ".mcp-coverage");
+            if (Directory.Exists(stateDir))
+            {
+                string[] stateFiles = [$".coverage-state-{key}", $".coverage-prev-{key}.xml"];
+                foreach (var name in stateFiles)
+                {
+                    var filePath = Path.Combine(stateDir, name);
+                    if (File.Exists(filePath))
+                    {
+                        try
+                        {
+                            File.Delete(filePath);
+                            removed++;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to delete session file: {Path}", filePath);
+                        }
+                    }
+                }
+            }
+
+            _fileService.SafeDelete(Path.Combine(workingDir, $"TestResults-{key}"));
+            _fileService.SafeDelete(Path.Combine(workingDir, $"coveragereport-{key}"));
+            // Also clean unsuffixed dirs that may have been created before session isolation
+            _fileService.SafeDelete(Path.Combine(workingDir, "TestResults"));
+            _fileService.SafeDelete(Path.Combine(workingDir, "coveragereport"));
+        }
+        else
+        {
+            var stateDir = Path.Combine(workingDir, ".mcp-coverage");
+            if (Directory.Exists(stateDir))
+            {
+                var cutoff = DateTime.UtcNow.AddMinutes(-maxAgeMinutes);
+                foreach (var file in Directory.GetFiles(stateDir))
+                {
+                    try
+                    {
+                        if (File.GetLastWriteTimeUtc(file) < cutoff)
+                        {
+                            File.Delete(file);
+                            removed++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to delete stale state file: {Path}", file);
+                    }
+                }
+            }
+
+            if (Directory.Exists(workingDir))
+            {
+                var cutoff = DateTime.UtcNow.AddMinutes(-maxAgeMinutes);
+                foreach (var dir in Directory.GetDirectories(workingDir))
+                {
+                    var dirName = Path.GetFileName(dir);
+                    if ((dirName.StartsWith("TestResults-") || dirName.StartsWith("coveragereport-"))
+                        && Directory.GetLastWriteTimeUtc(dir) < cutoff)
+                    {
+                        _fileService.SafeDelete(dir);
+                        removed++;
+                    }
+                }
+            }
+        }
+
+        _logger.LogInformation("Session cleanup removed {Count} artifacts", removed);
+        return removed;
+    }
+}
