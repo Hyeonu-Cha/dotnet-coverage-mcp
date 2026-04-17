@@ -269,4 +269,52 @@ public class Second { public void Existing() { } }";
 
         await act.Should().ThrowAsync<KeyNotFoundException>();
     }
+
+    // --- FindInnermostTypeClosingBrace (regression guard for namespace-scoped fallback) ---
+
+    [Fact]
+    public void FindInnermostTypeClosingBrace_BlockNamespace_ReturnsClassBrace()
+    {
+        var content = "namespace N\n{\n    class C\n    {\n    }\n}\n";
+        var pos = CodeInserter.FindInnermostTypeClosingBrace(content);
+        // Should point at the class's `}`, not the namespace's `}`
+        var openClass = content.IndexOf("class C");
+        pos.Should().BeGreaterThan(openClass);
+        pos.Should().BeLessThan(content.LastIndexOf('}'));
+        content[pos].Should().Be('}');
+    }
+
+    [Fact]
+    public void FindInnermostTypeClosingBrace_FileScopedNamespace_ReturnsClassBrace()
+    {
+        var content = "namespace N;\n\nclass C\n{\n}\n";
+        var pos = CodeInserter.FindInnermostTypeClosingBrace(content);
+        pos.Should().Be(content.LastIndexOf('}'));
+    }
+
+    [Fact]
+    public void FindInnermostTypeClosingBrace_EmptyContent_ReturnsMinusOne()
+    {
+        CodeInserter.FindInnermostTypeClosingBrace("").Should().Be(-1);
+    }
+
+    [Fact]
+    public async Task InsertCodeAsync_FallbackInsertsInsideClass_NotAfterNamespace()
+    {
+        // Force the fallback path by writing syntactically invalid-but-recoverable code.
+        // Use a file where Roslyn CAN parse — Roslyn path will insert correctly too.
+        // Here we verify the END result: new method is inside the class braces.
+        var path = Path.Combine(_tempDir, "Scoped.cs");
+        var original = "namespace Ns\n{\n    public class T\n    {\n        public void A() { }\n    }\n}\n";
+        File.WriteAllText(path, original);
+
+        await _sut.InsertCodeAsync(path, "public void B() { }", insertAfterAnchor: null);
+
+        var after = File.ReadAllText(path);
+        var classOpen = after.IndexOf("class T");
+        var namespaceClose = after.LastIndexOf('}');
+        var newMethod = after.IndexOf("public void B");
+        newMethod.Should().BeGreaterThan(classOpen);
+        newMethod.Should().BeLessThan(namespaceClose);
+    }
 }

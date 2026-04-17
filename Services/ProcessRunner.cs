@@ -10,7 +10,7 @@ public interface IProcessRunner
 {
     Task<TestRunResult> RunDotnetTestAsync(
         string testProjectPath, string filter, string resultsDir,
-        string workingDir, bool forceRestore, CancellationToken ct);
+        string workingDir, bool forceRestore, string? includeClass, CancellationToken ct);
 
     Task<ReportResult> RunReportGeneratorAsync(
         string xmlPath, string reportDir, string workingDir, CancellationToken ct = default);
@@ -20,6 +20,7 @@ public class ProcessRunner : IProcessRunner
 {
     private readonly ILogger<ProcessRunner> _logger;
     private const int ReportGeneratorTimeoutMs = 60_000;
+    private static readonly int DotnetTestTimeoutMs = ReadDotnetTestTimeoutMs();
 
     public ProcessRunner(ILogger<ProcessRunner> logger)
     {
@@ -28,10 +29,9 @@ public class ProcessRunner : IProcessRunner
 
     public async Task<TestRunResult> RunDotnetTestAsync(
         string testProjectPath, string filter, string resultsDir,
-        string workingDir, bool forceRestore, CancellationToken ct)
+        string workingDir, bool forceRestore, string? includeClass, CancellationToken ct)
     {
         var filterOp = filter.Contains('.') ? "=" : "~";
-        var className = StripTestSuffix(filter.Split('.').Last());
 
         var psi = new ProcessStartInfo
         {
@@ -54,24 +54,31 @@ public class ProcessRunner : IProcessRunner
         psi.ArgumentList.Add("--results-directory");
         psi.ArgumentList.Add(resultsDir);
 
-        if (!filter.Contains('*') && !filter.Contains(','))
-            psi.ArgumentList.Add($"/p:Include=[*]*{className}");
+        // Only scope coverage when caller explicitly opts in. Previously we inferred a
+        // class name from the filter, which silently mis-scoped namespace filters.
+        if (!string.IsNullOrWhiteSpace(includeClass))
+            psi.ArgumentList.Add($"/p:Include=[*]*{includeClass}");
 
         _logger.LogInformation("Starting dotnet test for {Project} with filter {Filter}", testProjectPath, filter);
         using var process = Process.Start(psi) ?? throw new Exception("Failed to start dotnet test");
 
+        // Combine caller's token with an outer test timeout. Without this, a hung restore
+        // or a locked NuGet cache would hang the MCP call until the client cancels.
+        using var timeoutCts = new CancellationTokenSource(DotnetTestTimeoutMs);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+
         // Register cancellation to kill the process immediately, before
         // awaiting stdout/stderr — otherwise ReadToEndAsync blocks until
         // the process exits and the cancellation token is never checked.
-        using var ctReg = ct.Register(() =>
+        using var ctReg = linkedCts.Token.Register(() =>
         {
-            _logger.LogWarning("Test run cancelled, killing process tree for {Project}", testProjectPath);
+            _logger.LogWarning("Test run cancelled/timed out, killing process tree for {Project}", testProjectPath);
             try { process.Kill(entireProcessTree: true); } catch { }
         });
 
         var outTask = process.StandardOutput.ReadToEndAsync();
         var errTask = process.StandardError.ReadToEndAsync();
-        var exitTask = process.WaitForExitAsync(ct);
+        var exitTask = process.WaitForExitAsync(linkedCts.Token);
 
         try
         {
@@ -81,8 +88,9 @@ public class ProcessRunner : IProcessRunner
         {
             // Process already killed by ctReg callback — drain remaining output
             var partialOut = outTask.IsCompleted ? await outTask : "";
-            var partialErr = errTask.IsCompleted ? await errTask : "";
-            return new TestRunResult(false, partialOut, "cancelled", -1, null);
+            _ = errTask.IsCompleted ? await errTask : "";
+            var reason = ct.IsCancellationRequested ? "cancelled" : "timeout";
+            return new TestRunResult(false, partialOut, reason, -1, null);
         }
 
         var output = await outTask;
@@ -99,6 +107,13 @@ public class ProcessRunner : IProcessRunner
         }
 
         return new TestRunResult(process.ExitCode == 0, output, error, process.ExitCode, coverageXmlPath);
+    }
+
+    private static int ReadDotnetTestTimeoutMs()
+    {
+        const int defaultMs = 600_000; // 10 minutes
+        var raw = Environment.GetEnvironmentVariable("COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS");
+        return int.TryParse(raw, out var v) && v > 0 ? v : defaultMs;
     }
 
     public async Task<ReportResult> RunReportGeneratorAsync(
@@ -160,17 +175,5 @@ public class ProcessRunner : IProcessRunner
         if (escaped.EndsWith('\\'))
             escaped += "\\";
         return "\"" + escaped + "\"";
-    }
-
-    internal static string StripTestSuffix(string className)
-    {
-        if (string.IsNullOrEmpty(className)) return className;
-        if (className.EndsWith("IntegrationTests")) return className[..^16];
-        if (className.EndsWith("UnitTests")) return className[..^9];
-        if (className.EndsWith("Tests")) return className[..^5];
-        if (className.EndsWith("Specs")) return className[..^5];
-        if (className.EndsWith("Spec")) return className[..^4];
-        if (className.EndsWith("Test")) return className[..^4];
-        return className;
     }
 }

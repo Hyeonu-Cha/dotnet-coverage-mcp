@@ -12,6 +12,7 @@ public class CoverageToolsTests
     private readonly Mock<IFileService> _fileService = new();
     private readonly Mock<ICoberturaService> _coberturaService = new();
     private readonly Mock<ICodeInserter> _codeInserter = new();
+    private readonly Mock<IPathGuard> _pathGuard = new();
     private readonly CoverageTools _sut;
 
     public CoverageToolsTests()
@@ -21,9 +22,12 @@ public class CoverageToolsTests
             _sessionManager.Object,
             _fileService.Object,
             _coberturaService.Object,
-            _codeInserter.Object);
+            _codeInserter.Object,
+            _pathGuard.Object);
 
         _sessionManager.Setup(s => s.ComputeSuffix(It.IsAny<string?>())).Returns("");
+        // Default: path guard accepts everything. Individual tests override to assert rejection.
+        _pathGuard.Setup(p => p.Validate(It.IsAny<string>(), It.IsAny<string>()));
     }
 
     // --- RunTestsWithCoverage ---
@@ -47,7 +51,7 @@ public class CoverageToolsTests
     {
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(false, "", "cancelled", -1, null));
 
         var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
@@ -59,7 +63,7 @@ public class CoverageToolsTests
     {
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(false, "output", "error", 1, null));
 
         var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
@@ -71,7 +75,7 @@ public class CoverageToolsTests
     {
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(true, "output", "", 0, null));
 
         var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
@@ -83,7 +87,7 @@ public class CoverageToolsTests
     {
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(true, "test output", "", 0, "/coverage.xml"));
 
         _processRunner.Setup(p => p.RunReportGeneratorAsync(
@@ -102,7 +106,7 @@ public class CoverageToolsTests
     {
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(true, "", "", 0, "/coverage.xml"));
 
         _processRunner.Setup(p => p.RunReportGeneratorAsync(
@@ -120,7 +124,7 @@ public class CoverageToolsTests
     {
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(false, "", "cancelled", -1, null));
 
         await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
@@ -134,7 +138,7 @@ public class CoverageToolsTests
     {
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(true, "", "", 0, "/coverage.xml"));
 
         _processRunner.Setup(p => p.RunReportGeneratorAsync(

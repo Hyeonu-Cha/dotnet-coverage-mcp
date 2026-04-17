@@ -12,37 +12,51 @@ public class CoverageTools
     private readonly IFileService _fileService;
     private readonly ICoberturaService _coberturaService;
     private readonly ICodeInserter _codeInserter;
+    private readonly IPathGuard _pathGuard;
 
     public CoverageTools(
         IProcessRunner processRunner,
         ISessionManager sessionManager,
         IFileService fileService,
         ICoberturaService coberturaService,
-        ICodeInserter codeInserter)
+        ICodeInserter codeInserter,
+        IPathGuard pathGuard)
     {
         _processRunner = processRunner;
         _sessionManager = sessionManager;
         _fileService = fileService;
         _coberturaService = coberturaService;
         _codeInserter = codeInserter;
+        _pathGuard = pathGuard;
     }
 
     // --- 1. RunTestsWithCoverage ---
 
     [McpServerTool]
-    [Description("Run dotnet test with XPlat Code Coverage and generate a JSON summary. Returns paths to Summary.json and coverage.cobertura.xml. Use broad filter (containing * or ,) for multi-file coverage; use class-specific filter for single-class scoping. Set forceRestore=true after scaffolding a new test project or adding NuGet packages. Pass sessionId to isolate output directories when multiple agents run concurrently.")]
+    [Description("Run dotnet test with XPlat Code Coverage and generate a JSON summary. Returns paths to Summary.json and coverage.cobertura.xml. Use broad filter (containing * or ,) for multi-file coverage. Pass includeClass to scope coverage collection to a single class. Set forceRestore=true after scaffolding a new test project or adding NuGet packages. Pass sessionId to isolate output directories when multiple agents run concurrently.")]
     public async Task<string> RunTestsWithCoverage(
         string testProjectPath,
         string filter,
         string? workingDir = null,
         bool forceRestore = false,
         string? sessionId = null,
+        string? includeClass = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(testProjectPath))
             return JsonHelper.Error("invalidParameter", "testProjectPath must not be empty.");
         if (string.IsNullOrWhiteSpace(filter))
             return JsonHelper.Error("invalidParameter", "filter must not be empty.");
+
+        try
+        {
+            _pathGuard.Validate(testProjectPath, nameof(testProjectPath));
+            if (workingDir != null) _pathGuard.Validate(workingDir, nameof(workingDir));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return JsonHelper.Error("pathNotAllowed", ex.Message);
+        }
 
         workingDir ??= Path.GetDirectoryName(testProjectPath) ?? Directory.GetCurrentDirectory();
         var suffix = _sessionManager.ComputeSuffix(sessionId);
@@ -53,10 +67,13 @@ public class CoverageTools
         _fileService.SafeDelete(reportDir);
 
         var testResult = await _processRunner.RunDotnetTestAsync(
-            testProjectPath, filter, resultsDir, workingDir, forceRestore, cancellationToken);
+            testProjectPath, filter, resultsDir, workingDir, forceRestore, includeClass, cancellationToken);
 
         if (testResult.Error == "cancelled")
             return JsonHelper.Error("cancelled", "Test run was cancelled by the client.");
+
+        if (testResult.Error == "timeout")
+            return JsonHelper.Error("timeout", $"Test run timed out. Output: {testResult.Output}");
 
         if (!testResult.Success)
             return JsonHelper.Error("buildError", $"Test run failed (code {testResult.ExitCode}). Error: {testResult.Error}\nOutput: {testResult.Output}");
@@ -74,8 +91,6 @@ public class CoverageTools
         }
         catch (Exception ex)
         {
-            // reportgenerator not installed or failed to launch — return coverage XML path
-            // so the agent can still use the raw Cobertura data
             return JsonHelper.Error("reportFailed",
                 $"Could not launch reportgenerator: {ex.Message}\nCobertura XML is still available at: {testResult.CoverageXmlPath}");
         }
@@ -96,6 +111,9 @@ public class CoverageTools
     [Description("Parse Summary.json into structured class/method coverage data sorted by branch coverage (lowest first). Returns JSON array with lineCoverage and branchCoverage per class and method.")]
     public string GetCoverageSummary(string summaryJsonPath)
     {
+        try { _pathGuard.Validate(summaryJsonPath, nameof(summaryJsonPath)); }
+        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
         if (!File.Exists(summaryJsonPath))
             return JsonHelper.Error("fileNotFound", $"Summary.json not found: {summaryJsonPath}");
 
@@ -120,6 +138,9 @@ public class CoverageTools
     [Description("Find uncovered branch conditions for methods matching the given name in Cobertura XML. Returns all matching methods with their uncovered branches. Supports partial method name matching. Pass sessionId to resolve the correct coverage state when multiple agents run concurrently.")]
     public string GetUncoveredBranches(string coberturaXmlPath, string methodName, string? sessionId = null)
     {
+        try { _pathGuard.Validate(coberturaXmlPath, nameof(coberturaXmlPath)); }
+        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
         var resolvedPath = _sessionManager.ResolveCoberturaPath(coberturaXmlPath, sessionId);
         if (resolvedPath == null)
             return JsonHelper.Error("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
@@ -142,9 +163,12 @@ public class CoverageTools
     // --- 4. AppendTestCode ---
 
     [McpServerTool]
-    [Description("Insert or append C# test code into a test file. Use insertAfterAnchor to place code after a specific method or string, or omit to append at the end of the last class. Uses Roslyn AST for safe insertion with string-based fallback. File-level locking prevents concurrent write loss.")]
+    [Description("Insert or append C# test code into a test file. Use insertAfterAnchor to place code after a specific method or string, or omit to append inside the last class (before its closing brace, preserving namespace scope). Uses Roslyn AST for safe insertion with string-based fallback. File-level locking prevents concurrent write loss.")]
     public async Task<string> AppendTestCode(string testFilePath, string codeToAppend, string? insertAfterAnchor = null)
     {
+        try { _pathGuard.Validate(testFilePath, nameof(testFilePath)); }
+        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
         if (!File.Exists(testFilePath))
             return JsonHelper.Error("fileNotFound", $"Test file not found: {testFilePath}");
 
@@ -156,7 +180,7 @@ public class CoverageTools
                 InsertionMethod.RoslynAst => "Roslyn AST",
                 InsertionMethod.StringFallback => "string fallback",
                 InsertionMethod.StringFallbackNormalized => "string fallback, whitespace-normalized",
-                InsertionMethod.Appended => "string fallback",
+                InsertionMethod.Appended => "string fallback, before-last-brace",
                 _ => "unknown"
             };
             return $"Successfully inserted via {methodLabel} in {testFilePath}.\nNew file length: {result.Content.Length} chars";
@@ -173,6 +197,13 @@ public class CoverageTools
     [Description("Compare current coverage against the previous baseline. Shows method-level changes including new and removed methods. Saves current as new baseline after comparison. Use sessionId to isolate concurrent runs.")]
     public string GetCoverageDiff(string coberturaXmlPath, string? workingDir = null, string? sessionId = null)
     {
+        try
+        {
+            _pathGuard.Validate(coberturaXmlPath, nameof(coberturaXmlPath));
+            if (workingDir != null) _pathGuard.Validate(workingDir, nameof(workingDir));
+        }
+        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
         var resolvedPath = _sessionManager.ResolveCoberturaPath(coberturaXmlPath, sessionId);
         if (resolvedPath == null)
             return JsonHelper.Error("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
@@ -207,6 +238,9 @@ public class CoverageTools
     [Description("Get coverage for a single source file from Cobertura XML. Returns per-class and per-method rates with allMeetTarget (true when all classes meet targetRate for both line and branch). Instant — just XML parsing. Pass sessionId to resolve the correct coverage state when multiple agents run concurrently.")]
     public string GetFileCoverage(string coberturaXmlPath, string sourceFileName, string? sessionId = null, double targetRate = 0.8)
     {
+        try { _pathGuard.Validate(coberturaXmlPath, nameof(coberturaXmlPath)); }
+        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
         if (targetRate < 0.0 || targetRate > 1.0)
             return JsonHelper.Error("invalidParameter", "targetRate must be between 0.0 and 1.0.");
 
@@ -232,7 +266,7 @@ public class CoverageTools
     // --- 7. GetSourceFiles ---
 
     [McpServerTool]
-    [Description("Discover .cs source files from a file path, folder, or .csproj project. Returns file metadata (lines, methodCount) and smart batches grouped by lineBudget. Small files are grouped together, large files get their own batch.")]
+    [Description("Discover .cs source files from a file path, folder, .csproj project, or comma/semicolon-separated list of .cs file paths. Returns file metadata (lines, methodCount) and smart batches grouped by lineBudget. Small files are grouped together, large files get their own batch. Use a list of paths to target specific files (e.g. from git diff --name-only).")]
     public string GetSourceFiles(string path, int lineBudget = 300)
     {
         if (lineBudget < 1)
@@ -242,35 +276,62 @@ public class CoverageTools
         string scope;
         string? scopePath = null;
 
-        if (File.Exists(path) && path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+        if (path.Contains(',') || path.Contains(';'))
         {
-            scope = "file";
-            filePaths = [Path.GetFullPath(path)];
-        }
-        else if (File.Exists(path) && path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
-        {
-            scope = "project";
-            scopePath = Path.GetFullPath(path);
-            var projectDir = Path.GetDirectoryName(scopePath) ?? Directory.GetCurrentDirectory();
-            filePaths = Directory.GetFiles(projectDir, "*.cs", SearchOption.AllDirectories)
-                .Where(f => !_fileService.IsExcludedPath(f))
+            scope = "list";
+            var paths = path.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries);
+            try
+            {
+                foreach (var p in paths) _pathGuard.Validate(p.Trim(), nameof(path));
+            }
+            catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
+            filePaths = paths
+                .Select(p => p.Trim())
+                .Where(p => File.Exists(p) && p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
                 .Select(Path.GetFullPath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(f => f)
                 .ToList();
-        }
-        else if (Directory.Exists(path))
-        {
-            scope = "folder";
-            scopePath = Path.GetFullPath(path);
-            filePaths = Directory.GetFiles(path, "*.cs", SearchOption.AllDirectories)
-                .Where(f => !_fileService.IsExcludedPath(f))
-                .Select(Path.GetFullPath)
-                .OrderBy(f => f)
-                .ToList();
+
+            if (filePaths.Count == 0)
+                return JsonHelper.Error("fileNotFound", "None of the files in the provided list were found or are .cs files.");
         }
         else
         {
-            return JsonHelper.Error("fileNotFound", $"Path not found or not a .cs file, .csproj file, or directory: {path}");
+            try { _pathGuard.Validate(path, nameof(path)); }
+            catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
+            if (File.Exists(path) && path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            {
+                scope = "file";
+                filePaths = [Path.GetFullPath(path)];
+            }
+            else if (File.Exists(path) && path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+            {
+                scope = "project";
+                scopePath = Path.GetFullPath(path);
+                var projectDir = Path.GetDirectoryName(scopePath) ?? Directory.GetCurrentDirectory();
+                filePaths = Directory.GetFiles(projectDir, "*.cs", SearchOption.AllDirectories)
+                    .Where(f => !_fileService.IsExcludedPath(f))
+                    .Select(Path.GetFullPath)
+                    .OrderBy(f => f)
+                    .ToList();
+            }
+            else if (Directory.Exists(path))
+            {
+                scope = "folder";
+                scopePath = Path.GetFullPath(path);
+                filePaths = Directory.GetFiles(path, "*.cs", SearchOption.AllDirectories)
+                    .Where(f => !_fileService.IsExcludedPath(f))
+                    .Select(Path.GetFullPath)
+                    .OrderBy(f => f)
+                    .ToList();
+            }
+            else
+            {
+                return JsonHelper.Error("fileNotFound", $"Path not found or not a .cs file, .csproj file, or directory: {path}");
+            }
         }
 
         var bag = new ConcurrentBag<(string path, int lines, int methodCount)>();
@@ -336,6 +397,9 @@ public class CoverageTools
     [Description("Remove stale session artifacts. Call with sessionId to clean that session, or omit to remove all artifacts older than maxAgeMinutes (default 120). Cleans state files in .mcp-coverage/ and session-scoped TestResults/coveragereport directories.")]
     public string CleanupSession(string workingDir, string? sessionId = null, int maxAgeMinutes = 120)
     {
+        try { _pathGuard.Validate(workingDir, nameof(workingDir)); }
+        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
         var removed = _sessionManager.Cleanup(workingDir, sessionId, maxAgeMinutes);
         return JsonHelper.Serialize(new { removed });
     }

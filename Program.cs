@@ -10,6 +10,7 @@ builder.Logging.AddConsole(options =>
     options.LogToStandardErrorThreshold = LogLevel.Trace;
 });
 
+builder.Services.AddSingleton<IPathGuard, PathGuard>();
 builder.Services.AddSingleton<IFileService, FileService>();
 builder.Services.AddSingleton<ISessionManager, SessionManager>();
 builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();

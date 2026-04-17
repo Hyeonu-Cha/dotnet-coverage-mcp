@@ -87,9 +87,41 @@ public class CodeInserter : ICodeInserter
             }
         }
 
-        var appended = content + "\n\n" + codeToAppend.Trim() + "\n";
+        var bracePos = FindInnermostTypeClosingBrace(content);
+        string appended;
+        if (bracePos >= 0)
+        {
+            appended = content[..bracePos] + "\n" + codeToAppend.Trim() + "\n" + content[bracePos..] + "\n";
+        }
+        else
+        {
+            // No closing brace found (e.g. empty file or only file-scoped globals) — append at EOF.
+            appended = content + "\n\n" + codeToAppend.Trim() + "\n";
+        }
         _fileService.AtomicWriteFile(testFilePath, appended);
         return new InsertionResult(InsertionMethod.Appended, appended);
+    }
+
+    /// <summary>
+    /// Finds the insertion point for a new class member when no anchor is provided.
+    /// Walks back from EOF through consecutive closing braces (separated only by whitespace)
+    /// and returns the position of the innermost one — i.e., the brace that closes the last
+    /// type declaration. This keeps inserted code inside the class even when the file uses
+    /// a block-scoped namespace. Returns -1 if no suitable brace is found.
+    /// </summary>
+    internal static int FindInnermostTypeClosingBrace(string content)
+    {
+        var i = content.Length - 1;
+        while (i >= 0 && char.IsWhiteSpace(content[i])) i--;
+        if (i < 0 || content[i] != '}') return -1;
+
+        var outerBrace = i;
+        var j = i - 1;
+        while (j >= 0 && char.IsWhiteSpace(content[j])) j--;
+        if (j >= 0 && content[j] == '}')
+            return j; // inner type's closing brace inside a block-scoped namespace
+
+        return outerBrace;
     }
 
     internal static bool TryRoslynInsert(string content, string codeToAppend, string? insertAfterAnchor, out string result, out string? failureReason)

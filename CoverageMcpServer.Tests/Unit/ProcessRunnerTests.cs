@@ -43,39 +43,4 @@ public class ProcessRunnerTests
     {
         ProcessRunner.EscapeProcessArg(@"C:\my project\tests").Should().Be("\"C:\\my project\\tests\"");
     }
-
-    // --- StripTestSuffix ---
-
-    [Theory]
-    [InlineData("FooTests", "Foo")]
-    [InlineData("FooTest", "Foo")]
-    [InlineData("FooUnitTests", "Foo")]
-    [InlineData("FooIntegrationTests", "Foo")]
-    [InlineData("FooSpecs", "Foo")]
-    [InlineData("FooSpec", "Foo")]
-    [InlineData("FooService", "FooService")]
-    [InlineData("Tests", "")]
-    public void StripTestSuffix_RemovesCorrectSuffix(string input, string expected)
-    {
-        ProcessRunner.StripTestSuffix(input).Should().Be(expected);
-    }
-
-    [Fact]
-    public void StripTestSuffix_IntegrationTestsHasPriority()
-    {
-        // "FooIntegrationTests" should strip "IntegrationTests", not just "Tests"
-        ProcessRunner.StripTestSuffix("FooIntegrationTests").Should().Be("Foo");
-    }
-
-    [Fact]
-    public void StripTestSuffix_EmptyString_ReturnsEmpty()
-    {
-        ProcessRunner.StripTestSuffix("").Should().Be("");
-    }
-
-    [Fact]
-    public void StripTestSuffix_NullString_ReturnsNull()
-    {
-        ProcessRunner.StripTestSuffix(null!).Should().BeNull();
-    }
 }

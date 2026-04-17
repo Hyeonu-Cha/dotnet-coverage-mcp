@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
 namespace CoverageMcpServer.Services;
@@ -56,23 +54,51 @@ public class FileService : IFileService
 
     public async Task WithFileLockAsync(string filePath, Func<Task> action)
     {
-        var normalizedPath = Path.GetFullPath(filePath).ToLowerInvariant();
-        var entry = _fileLocks.AddOrUpdate(
-            normalizedPath,
-            _ => (new SemaphoreSlim(1, 1), DateTime.UtcNow),
-            (_, existing) => (existing.Lock, DateTime.UtcNow));
+        var normalizedPath = NormalizeLockKey(filePath);
+        const int maxRetries = 5;
 
-        EvictStaleLocks();
-        await entry.Lock.WaitAsync();
-        try
+        for (var attempt = 0; attempt < maxRetries; attempt++)
         {
-            await action();
-        }
-        finally
-        {
+            var entry = _fileLocks.AddOrUpdate(
+                normalizedPath,
+                _ => (new SemaphoreSlim(1, 1), DateTime.UtcNow),
+                (_, existing) => (existing.Lock, DateTime.UtcNow));
+
+            EvictStaleLocks();
+            await entry.Lock.WaitAsync();
+
+            // Eviction runs without holding the lock, so the entry we acquired
+            // may have been removed between AddOrUpdate and WaitAsync. If that
+            // happened, another caller may have created a different semaphore
+            // for the same path — release ours and retry with the canonical one.
+            if (_fileLocks.TryGetValue(normalizedPath, out var current)
+                && ReferenceEquals(current.Lock, entry.Lock))
+            {
+                try { await action(); return; }
+                finally { entry.Lock.Release(); }
+            }
+
             entry.Lock.Release();
+            _logger.LogDebug("File lock for {Path} was evicted mid-acquire, retrying (attempt {Attempt})", filePath, attempt + 1);
         }
+
+        throw new InvalidOperationException(
+            $"Could not acquire a stable file lock for '{filePath}' after {maxRetries} attempts.");
     }
+
+    private static string NormalizeLockKey(string filePath)
+    {
+        var full = Path.GetFullPath(filePath);
+        // Case-insensitive on Windows; preserve case on Unix (different paths = different files).
+        return OperatingSystem.IsWindows() ? full.ToLowerInvariant() : full;
+    }
+
+    // Approximate — matches a line starting with `public` that ends with `(`, covering
+    // the common C# shapes (methods, generic methods, constructors). Trades exactness
+    // for speed so we don't parse every file in the repo with Roslyn just to build batches.
+    private static readonly Regex PublicMethodRegex = new(
+        @"^\s*public\s[^;{}()]*\s\w+\s*(?:<[^<>]+>)?\s*\(",
+        RegexOptions.Multiline | RegexOptions.Compiled);
 
     public (int Lines, int MethodCount) GetFileMetadata(string filePath)
     {
@@ -80,11 +106,7 @@ public class FileService : IFileService
         {
             var text = File.ReadAllText(filePath);
             var lines = text.Split('\n').Length;
-            var tree = CSharpSyntaxTree.ParseText(text);
-            var root = tree.GetCompilationUnitRoot();
-            var methodCount = root.DescendantNodes()
-                .OfType<MethodDeclarationSyntax>()
-                .Count(m => m.Modifiers.Any(SyntaxKind.PublicKeyword));
+            var methodCount = PublicMethodRegex.Matches(text).Count;
             return (Math.Max(lines, 1), methodCount);
         }
         catch (Exception ex)
@@ -110,8 +132,13 @@ public class FileService : IFileService
     {
         if (_fileLocks.Count <= MaxFileLocks) return;
 
+        // Grace period: never evict an entry that was touched in the last 5 seconds.
+        // This narrows the race window where a caller has just obtained a reference
+        // via AddOrUpdate but has not yet called WaitAsync.
+        var graceCutoff = DateTime.UtcNow.AddSeconds(-5);
+
         var candidates = _fileLocks
-            .Where(kv => kv.Value.Lock.CurrentCount == 1)
+            .Where(kv => kv.Value.Lock.CurrentCount == 1 && kv.Value.LastAccess < graceCutoff)
             .OrderBy(kv => kv.Value.LastAccess)
             .Take(_fileLocks.Count - MaxFileLocks + 20)
             .Select(kv => kv.Key)

@@ -125,8 +125,15 @@ public class SessionManager : ISessionManager
                     var filePath = Path.Combine(stateDir, name);
                     if (File.Exists(filePath))
                     {
-                        try { File.Delete(filePath); removed++; }
-                    catch (Exception ex) { _logger.LogWarning(ex, "Failed to delete session file: {Path}", filePath); }
+                        try
+                        {
+                            File.Delete(filePath);
+                            removed++;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to delete session file: {Path}", filePath);
+                        }
                     }
                 }
             }
