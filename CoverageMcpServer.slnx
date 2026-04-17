@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="CoverageMcpServer.csproj" />
+  <Project Path="CoverageMcpServer.Tests/CoverageMcpServer.Tests.csproj" />
+</Solution>
