@@ -53,6 +53,13 @@ public class CodeInserter : ICodeInserter
 
     private InsertionResult InsertWithStringFallback(string testFilePath, string content, string codeToAppend, string? insertAfterAnchor)
     {
+        // Strip and hoist leading `using` directives — otherwise the fallback would inject them
+        // inside the class body, producing invalid C#.
+        var (extractedUsings, memberCode) = SplitLeadingUsings(codeToAppend);
+        if (extractedUsings.Count > 0)
+            content = HoistUsingsIntoContent(content, extractedUsings);
+        codeToAppend = memberCode;
+
         if (insertAfterAnchor != null)
         {
             var idx = content.LastIndexOf(insertAfterAnchor, StringComparison.Ordinal);
@@ -124,19 +131,42 @@ public class CodeInserter : ICodeInserter
         return outerBrace;
     }
 
+    // Matches a single `using X;` or `using static X;` or `using alias = X;` directive at the start
+    // of a string. We strip these out of codeToAppend before wrapping it in a class, since using
+    // directives are invalid inside a class body and would otherwise fail the Roslyn parse.
+    private static readonly Regex LeadingUsingRegex = new(
+        @"^\s*using\s+(?:static\s+)?[\w.@=\s<>,]+;[^\S\r\n]*\r?\n?",
+        RegexOptions.Compiled);
+
+    internal static (List<string> Usings, string Remainder) SplitLeadingUsings(string code)
+    {
+        var usings = new List<string>();
+        var remainder = code;
+        while (true)
+        {
+            var match = LeadingUsingRegex.Match(remainder);
+            if (!match.Success || match.Index != 0) break;
+            usings.Add(match.Value.Trim());
+            remainder = remainder[match.Length..];
+        }
+        return (usings, remainder);
+    }
+
     internal static bool TryRoslynInsert(string content, string codeToAppend, string? insertAfterAnchor, out string result, out string? failureReason)
     {
         result = "";
         failureReason = null;
         try
         {
+            var (extractedUsings, memberCode) = SplitLeadingUsings(codeToAppend);
+
             var tree = CSharpSyntaxTree.ParseText(content);
             var root = tree.GetCompilationUnitRoot();
 
             var targetType = root.DescendantNodes().OfType<TypeDeclarationSyntax>().LastOrDefault();
             if (targetType == null) { failureReason = "no type declaration found in file"; return false; }
 
-            var wrapperTree = CSharpSyntaxTree.ParseText($"class __RoslynWrapper__ {{\n{codeToAppend}\n}}");
+            var wrapperTree = CSharpSyntaxTree.ParseText($"class __RoslynWrapper__ {{\n{memberCode}\n}}");
             var wrapperRoot = wrapperTree.GetCompilationUnitRoot();
             var wrapperType = wrapperRoot.DescendantNodes().OfType<TypeDeclarationSyntax>().FirstOrDefault();
             if (wrapperType == null || wrapperType.Members.Count == 0) { failureReason = "codeToAppend produced no parseable members"; return false; }
@@ -180,6 +210,10 @@ public class CodeInserter : ICodeInserter
             }
 
             var newRoot = root.ReplaceNode(targetType, updatedType);
+
+            if (extractedUsings.Count > 0)
+                newRoot = MergeUsings(newRoot, extractedUsings);
+
             result = newRoot.ToFullString();
             return true;
         }
@@ -188,6 +222,57 @@ public class CodeInserter : ICodeInserter
             failureReason = $"exception: {ex.Message}";
             return false;
         }
+    }
+
+    internal static string HoistUsingsIntoContent(string content, List<string> extractedUsings)
+    {
+        // Insert missing usings after the last existing `using ...;` line, or at the very top.
+        // De-dup based on the token between `using` and `;` (case-sensitive; namespaces are).
+        var existing = new HashSet<string>();
+        foreach (Match m in Regex.Matches(content, @"^\s*using\s+(?:static\s+)?([\w.@=\s<>,]+);", RegexOptions.Multiline))
+            existing.Add(m.Groups[1].Value.Trim());
+
+        var toAdd = new List<string>();
+        foreach (var raw in extractedUsings)
+        {
+            var tokenMatch = Regex.Match(raw, @"^using\s+(?:static\s+)?([\w.@=\s<>,]+);");
+            if (!tokenMatch.Success) continue;
+            var token = tokenMatch.Groups[1].Value.Trim();
+            if (existing.Add(token))
+                toAdd.Add(raw);
+        }
+        if (toAdd.Count == 0) return content;
+
+        var lastUsing = Regex.Matches(content, @"^\s*using\s+(?:static\s+)?[\w.@=\s<>,]+;\r?\n", RegexOptions.Multiline)
+            .LastOrDefault();
+        var block = string.Join("\n", toAdd) + "\n";
+
+        if (lastUsing != null)
+        {
+            var insertAt = lastUsing.Index + lastUsing.Length;
+            return content[..insertAt] + block + content[insertAt..];
+        }
+        return block + "\n" + content;
+    }
+
+    private static CompilationUnitSyntax MergeUsings(CompilationUnitSyntax root, List<string> extractedUsings)
+    {
+        var existing = root.Usings
+            .Select(u => u.Name?.ToString())
+            .Where(n => n != null)
+            .ToHashSet();
+
+        var toAdd = new List<UsingDirectiveSyntax>();
+        foreach (var raw in extractedUsings)
+        {
+            var parsed = SyntaxFactory.ParseCompilationUnit(raw).Usings.FirstOrDefault();
+            if (parsed == null) continue;
+            var name = parsed.Name?.ToString();
+            if (name != null && existing.Add(name))
+                toAdd.Add(parsed);
+        }
+
+        return toAdd.Count == 0 ? root : root.AddUsings([.. toAdd]);
     }
 
     internal static string NormalizeWhitespace(string input) =>

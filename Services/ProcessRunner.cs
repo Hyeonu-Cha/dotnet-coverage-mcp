@@ -168,12 +168,4 @@ public class ProcessRunner : IProcessRunner
             ? new ReportResult(true, summaryPath, null)
             : new ReportResult(false, null, "Report generation failed");
     }
-
-    internal static string EscapeProcessArg(string arg)
-    {
-        var escaped = arg.Replace("\"", "\\\"");
-        if (escaped.EndsWith('\\'))
-            escaped += "\\";
-        return "\"" + escaped + "\"";
-    }
 }
