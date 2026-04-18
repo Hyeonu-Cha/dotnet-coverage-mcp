@@ -25,6 +25,9 @@ Run a .NET test project with code coverage enabled and display a structured summ
 | `testProjectPath` | Yes | Full path to the `.csproj` test project file |
 | `filter` | Yes | Test filter string matched against `FullyQualifiedName` (partial match if no dots; exact match if contains dots) |
 | `workingDir` | No | Working directory; defaults to the project directory |
+| `includeClass` | No | Restrict coverage collection to a single class name (e.g. `OrderService`). Emits `/p:Include=[*]*<name>` to `dotnet test`. Use ONLY when you want coverage scoped to one class. Do NOT pass a namespace — the filter will silently exclude real classes. Omit for broad/multi-class coverage. |
+| `forceRestore` | No | Set to `true` after scaffolding a new test project or adding NuGet packages. |
+| `sessionId` | No | Isolate output directories when multiple agents run concurrently. |
 
 ## Workflow
 
@@ -40,6 +43,8 @@ dotnet tool install -g dotnet-reportgenerator-globaltool
 
 ### Step 2: Run tests with coverage
 Call `RunTestsWithCoverage` with the provided `testProjectPath` and `filter`.
+
+Pass `includeClass` only when coverage should be scoped to a single class (e.g. the specific class under test). Leave it unset for broad filters that span multiple classes — otherwise coverage numbers will be artificially zeroed for classes outside the include pattern.
 
 The tool returns paths to:
 - `Summary.json` — AI-optimized coverage summary

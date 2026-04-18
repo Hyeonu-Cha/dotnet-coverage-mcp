@@ -21,6 +21,9 @@ public class ProcessRunner : IProcessRunner
     private readonly ILogger<ProcessRunner> _logger;
     private const int ReportGeneratorTimeoutMs = 60_000;
     private static readonly int DotnetTestTimeoutMs = ReadDotnetTestTimeoutMs();
+    // Bounded wait for stdout/stderr to drain after the child process has been killed.
+    // Long enough for the OS to flush the pipe buffer, short enough not to extend a timeout.
+    private static readonly TimeSpan PostKillDrainWait = TimeSpan.FromSeconds(1);
 
     public ProcessRunner(ILogger<ProcessRunner> logger)
     {
@@ -86,11 +89,17 @@ public class ProcessRunner : IProcessRunner
         }
         catch (OperationCanceledException)
         {
-            // Process already killed by ctReg callback — drain remaining output
-            var partialOut = outTask.IsCompleted ? await outTask : "";
-            _ = errTask.IsCompleted ? await errTask : "";
+            // Process already killed by ctReg callback — drain remaining output with a
+            // bounded wait so we surface useful stderr without hanging on a stuck pipe.
+            // Callers compare Error against the string "cancelled"/"timeout", so keep that
+            // signal stable and fold any captured stderr into Output for diagnostics.
+            var partialOut = await DrainAsync(outTask);
+            var partialErr = await DrainAsync(errTask);
+            var combined = string.IsNullOrEmpty(partialErr)
+                ? partialOut
+                : partialOut + "\n--- stderr ---\n" + partialErr;
             var reason = ct.IsCancellationRequested ? "cancelled" : "timeout";
-            return new TestRunResult(false, partialOut, reason, -1, null);
+            return new TestRunResult(false, combined, reason, -1, null);
         }
 
         var output = await outTask;
@@ -114,6 +123,31 @@ public class ProcessRunner : IProcessRunner
         const int defaultMs = 600_000; // 10 minutes
         var raw = Environment.GetEnvironmentVariable("COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS");
         return int.TryParse(raw, out var v) && v > 0 ? v : defaultMs;
+    }
+
+    // Wait for a read task to complete after the process has been killed, up to the
+    // bounded PostKillDrainWait. If it doesn't finish, observe its eventual exception
+    // so it never surfaces as an UnobservedTaskException and return an empty string.
+    internal static async Task<string> DrainAsync(Task<string> task) =>
+        await DrainAsync(task, PostKillDrainWait);
+
+    internal static async Task<string> DrainAsync(Task<string> task, TimeSpan wait)
+    {
+        try
+        {
+            return await task.WaitAsync(wait);
+        }
+        catch (TimeoutException)
+        {
+            _ = task.ContinueWith(
+                t => _ = t.Exception,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+            return "";
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     public async Task<ReportResult> RunReportGeneratorAsync(
@@ -167,13 +201,5 @@ public class ProcessRunner : IProcessRunner
         return File.Exists(summaryPath)
             ? new ReportResult(true, summaryPath, null)
             : new ReportResult(false, null, "Report generation failed");
-    }
-
-    internal static string EscapeProcessArg(string arg)
-    {
-        var escaped = arg.Replace("\"", "\\\"");
-        if (escaped.EndsWith('\\'))
-            escaped += "\\";
-        return "\"" + escaped + "\"";
     }
 }

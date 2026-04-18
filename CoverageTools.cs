@@ -208,7 +208,17 @@ public class CoverageTools
         if (resolvedPath == null)
             return JsonHelper.Error("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
 
-        workingDir ??= ResolveProjectRoot(resolvedPath);
+        if (workingDir == null)
+        {
+            workingDir = ResolveProjectRoot(resolvedPath);
+            if (workingDir == null)
+                return JsonHelper.Error("resolveFailed",
+                    "Could not resolve project root from coverage XML path. Pass workingDir explicitly.");
+        }
+
+        try { _pathGuard.Validate(workingDir, nameof(workingDir)); }
+        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
         var stateDir = Path.Combine(workingDir, ".mcp-coverage");
         Directory.CreateDirectory(stateDir);
         var suffix = _sessionManager.ComputeSuffix(sessionId);
@@ -411,14 +421,19 @@ public class CoverageTools
     /// Coverage XMLs live inside TestResults-xxx/guid/, so we walk up
     /// past any TestResults or coveragereport directory to avoid storing
     /// baselines inside directories that get wiped on the next run.
+    /// Returns null if no sensible root is found — callers must surface a
+    /// clear error rather than silently dropping state into the current
+    /// working directory or drive root.
     /// </summary>
-    private static string ResolveProjectRoot(string resolvedPath)
+    internal static string? ResolveProjectRoot(string resolvedPath)
     {
         var dir = Path.GetDirectoryName(resolvedPath);
         const int maxDepth = 20;
         for (var depth = 0; dir != null && depth < maxDepth; depth++)
         {
             var name = Path.GetFileName(dir);
+            if (string.IsNullOrEmpty(name))
+                return null; // reached the drive root without finding a project-shaped directory
             if (name.StartsWith("TestResults", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("coveragereport", StringComparison.OrdinalIgnoreCase)
                 || Guid.TryParse(name, out _))
@@ -428,6 +443,6 @@ public class CoverageTools
             }
             return dir;
         }
-        return Directory.GetCurrentDirectory();
+        return null;
     }
 }

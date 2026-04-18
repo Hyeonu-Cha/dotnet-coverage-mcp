@@ -26,6 +26,7 @@ Autonomously run tests, identify coverage gaps, write targeted unit tests, and r
 | `filter` | Yes | Test filter string — use `*` or broad filter for batch/folder/project scope |
 | `lineBudget` | No | Max total lines per batch (default: 300). Small files get grouped, large files run solo |
 | `workingDir` | No | Working directory; defaults to project directory |
+| `includeClass` | No | Do NOT pass this in the iterative workflow. It scopes coverage to a single class and would skew batch-level numbers. Only used by `run-coverage` for single-class reports. |
 
 ## Workflow
 
@@ -60,6 +61,8 @@ For each file in the current batch:
 ### Step 1: Run coverage for the batch (ONE test run)
 Call `RunTestsWithCoverage` with `testProjectPath` and a **broad filter** (use `*` or namespace-level filter).
 This runs `dotnet test` **once** and collects coverage across all source files.
+
+Leave `includeClass` unset. It would silently limit collection to a single class and zero out the rest of the batch.
 
 Then for **each file in the batch**, call `GetFileCoverage` with `coberturaXmlPath` and the file name.
 - If `allMeetTarget: true` → mark file as done, skip it
@@ -129,7 +132,8 @@ For each file in the batch:
 - `GetFileCoverage` is instant (XML parse) — call it for every file in the batch freely
 - Small files (< 100 lines) get batched together so AI handles 3–5 at once
 - Large files (> lineBudget) get their own batch for focused attention
-- Use broad filter (`*` or namespace) for batch/folder/project scope to avoid `/p:Include` class scoping
+- Use broad filter (`*` or namespace) for batch/folder/project scope
+- Do NOT pass `includeClass` — it restricts coverage collection to one class and would zero out the rest of the batch
 
 ## Validation
 - [ ] `GetSourceFiles` returned batches grouped by line budget

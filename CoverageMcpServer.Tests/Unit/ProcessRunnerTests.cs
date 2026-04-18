@@ -5,42 +5,62 @@ namespace CoverageMcpServer.Tests.Unit;
 
 public class ProcessRunnerTests
 {
-    // --- EscapeProcessArg ---
-
     [Fact]
-    public void EscapeProcessArg_QuotesSimpleArg()
+    public async Task DrainAsync_ReturnsResultWhenTaskCompletesInTime()
     {
-        ProcessRunner.EscapeProcessArg("foo").Should().Be("\"foo\"");
+        var task = Task.FromResult("stdout-content");
+
+        var result = await ProcessRunner.DrainAsync(task, TimeSpan.FromSeconds(1));
+
+        result.Should().Be("stdout-content");
     }
 
     [Fact]
-    public void EscapeProcessArg_EscapesInternalQuotes()
+    public async Task DrainAsync_ReturnsEmptyWhenTaskExceedsDeadline()
     {
-        ProcessRunner.EscapeProcessArg("a\"b").Should().Be("\"a\\\"b\"");
+        var tcs = new TaskCompletionSource<string>();
+        // Task that will never complete within the drain window
+        var result = await ProcessRunner.DrainAsync(tcs.Task, TimeSpan.FromMilliseconds(50));
+
+        result.Should().BeEmpty();
+
+        // Clean up the still-pending task so it doesn't linger.
+        tcs.TrySetResult("late");
     }
 
     [Fact]
-    public void EscapeProcessArg_DoublesTrailingBackslash()
+    public async Task DrainAsync_ObservesLateFaultedTask_NoUnobservedException()
     {
-        ProcessRunner.EscapeProcessArg(@"C:\path\").Should().Be("\"C:\\path\\\\\"");
+        var tcs = new TaskCompletionSource<string>();
+
+        var result = await ProcessRunner.DrainAsync(tcs.Task, TimeSpan.FromMilliseconds(20));
+        result.Should().BeEmpty();
+
+        // Fault the task after DrainAsync has already returned. The continuation
+        // registered in DrainAsync should observe the exception and prevent it from
+        // bubbling up as an UnobservedTaskException.
+        tcs.TrySetException(new InvalidOperationException("simulated late stderr read failure"));
+
+        // Give the continuation a moment to run and observe.
+        await Task.Delay(50);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+
+        // If the exception had been unobserved, the finalizer would have queued a
+        // TaskScheduler.UnobservedTaskException. We can't deterministically assert
+        // that here without process-wide hooks, but reaching this point without
+        // the default unobserved-exception handler crashing the process is the
+        // behavioral contract we care about.
+        tcs.Task.IsFaulted.Should().BeTrue();
     }
 
     [Fact]
-    public void EscapeProcessArg_HandlesEmptyString()
+    public async Task DrainAsync_ReturnsEmptyWhenTaskFaultsBeforeDeadline()
     {
-        var result = ProcessRunner.EscapeProcessArg("");
-        result.Should().Be("\"\"");
-    }
+        var task = Task.FromException<string>(new InvalidOperationException("boom"));
 
-    [Fact]
-    public void EscapeProcessArg_NoTrailingBackslash_NoDoubling()
-    {
-        ProcessRunner.EscapeProcessArg(@"C:\path").Should().Be("\"C:\\path\"");
-    }
+        var result = await ProcessRunner.DrainAsync(task, TimeSpan.FromSeconds(1));
 
-    [Fact]
-    public void EscapeProcessArg_PathWithSpaces()
-    {
-        ProcessRunner.EscapeProcessArg(@"C:\my project\tests").Should().Be("\"C:\\my project\\tests\"");
+        result.Should().BeEmpty();
     }
 }

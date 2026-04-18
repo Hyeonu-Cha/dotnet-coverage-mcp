@@ -317,4 +317,100 @@ public class Second { public void Existing() { } }";
         newMethod.Should().BeGreaterThan(classOpen);
         newMethod.Should().BeLessThan(namespaceClose);
     }
+
+    [Fact]
+    public void HoistUsingsIntoContent_TreatsUsingAndUsingStaticAsDistinct()
+    {
+        // `using System.Math;` and `using static System.Math;` bind different things;
+        // the dedup key must not collapse them, or one of them silently drops out.
+        var content = "using System.Math;\n\nnamespace N { class C {} }\n";
+        var toAdd = new List<string> { "using static System.Math;" };
+
+        var result = CodeInserter.HoistUsingsIntoContent(content, toAdd);
+
+        result.Should().Contain("using static System.Math;");
+        result.Should().Contain("using System.Math;");
+    }
+
+    [Fact]
+    public void HoistUsingsIntoContent_DedupsIdenticalStaticImports()
+    {
+        var content = "using static System.Math;\n\nnamespace N { class C {} }\n";
+        var toAdd = new List<string> { "using static System.Math;" };
+
+        var result = CodeInserter.HoistUsingsIntoContent(content, toAdd);
+
+        var count = System.Text.RegularExpressions.Regex.Matches(result, @"using static System\.Math;").Count;
+        count.Should().Be(1);
+    }
+
+    [Fact]
+    public void TryRoslynInsert_PreservesBothAliasedAndPlainUsingForSameNamespace()
+    {
+        // Regression: MergeUsings previously keyed only on u.Name, so a plain `using X;`
+        // would mask an aliased `using M = X;` (and vice versa) and drop one of them.
+        var content = @"using System.Math;
+namespace N { public class T {} }";
+        var code = @"using M = System.Math;
+public void X() { }";
+
+        var success = CodeInserter.TryRoslynInsert(content, code, null, out var result, out _);
+
+        success.Should().BeTrue();
+        result.Should().Contain("using System.Math;");
+        result.Should().Contain("using M = System.Math;");
+    }
+
+    [Fact]
+    public void SplitLeadingUsings_ExtractsUsingAfterLineComment()
+    {
+        var code = "// header comment\nusing System;\npublic void X() { }";
+
+        var (usings, remainder) = CodeInserter.SplitLeadingUsings(code);
+
+        usings.Should().ContainSingle().Which.Should().Be("using System;");
+        remainder.Should().Contain("// header comment");
+        remainder.Should().NotContain("using System;");
+        remainder.Should().Contain("public void X()");
+    }
+
+    [Fact]
+    public void SplitLeadingUsings_ExtractsGlobalUsing()
+    {
+        var code = "global using System.Text;\npublic void X() { }";
+
+        var (usings, remainder) = CodeInserter.SplitLeadingUsings(code);
+
+        usings.Should().ContainSingle().Which.Should().StartWith("global using System.Text;");
+        remainder.Should().NotContain("global using");
+        remainder.Should().Contain("public void X()");
+    }
+
+    [Fact]
+    public void HoistUsingsIntoContent_DedupsAliasedImportIgnoringWhitespace()
+    {
+        // `using M=System.Math;` and `using M = System.Math;` are the same directive;
+        // the regex-path key must split alias from name so internal whitespace doesn't
+        // produce two distinct keys and allow a duplicate through.
+        var content = "using M=System.Math;\n\nnamespace N { class C {} }\n";
+        var toAdd = new List<string> { "using M = System.Math;" };
+
+        var result = CodeInserter.HoistUsingsIntoContent(content, toAdd);
+
+        var count = System.Text.RegularExpressions.Regex
+            .Matches(result, @"using M\s*=\s*System\.Math;").Count;
+        count.Should().Be(1);
+    }
+
+    [Fact]
+    public void SplitLeadingUsings_HandlesBlockCommentAndMultipleUsings()
+    {
+        var code = "/* file-level doc */\nusing System;\n// comment\nusing System.Linq;\npublic void X() { }";
+
+        var (usings, _) = CodeInserter.SplitLeadingUsings(code);
+
+        usings.Should().HaveCount(2);
+        usings[0].Should().Be("using System;");
+        usings[1].Should().Be("using System.Linq;");
+    }
 }
