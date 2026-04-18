@@ -317,4 +317,30 @@ public class Second { public void Existing() { } }";
         newMethod.Should().BeGreaterThan(classOpen);
         newMethod.Should().BeLessThan(namespaceClose);
     }
+
+    [Fact]
+    public void HoistUsingsIntoContent_TreatsUsingAndUsingStaticAsDistinct()
+    {
+        // `using System.Math;` and `using static System.Math;` bind different things;
+        // the dedup key must not collapse them, or one of them silently drops out.
+        var content = "using System.Math;\n\nnamespace N { class C {} }\n";
+        var toAdd = new List<string> { "using static System.Math;" };
+
+        var result = CodeInserter.HoistUsingsIntoContent(content, toAdd);
+
+        result.Should().Contain("using static System.Math;");
+        result.Should().Contain("using System.Math;");
+    }
+
+    [Fact]
+    public void HoistUsingsIntoContent_DedupsIdenticalStaticImports()
+    {
+        var content = "using static System.Math;\n\nnamespace N { class C {} }\n";
+        var toAdd = new List<string> { "using static System.Math;" };
+
+        var result = CodeInserter.HoistUsingsIntoContent(content, toAdd);
+
+        var count = System.Text.RegularExpressions.Regex.Matches(result, @"using static System\.Math;").Count;
+        count.Should().Be(1);
+    }
 }

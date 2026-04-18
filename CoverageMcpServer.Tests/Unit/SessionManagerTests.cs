@@ -14,8 +14,10 @@ public class SessionManagerTests : IDisposable
     public SessionManagerTests()
     {
         _fileService = new Mock<IFileService>();
+        var pathGuard = new Mock<IPathGuard>();
+        pathGuard.Setup(g => g.IsWithinAllowedRoot(It.IsAny<string>())).Returns(true);
         var logger = new Mock<ILogger<SessionManager>>();
-        _sut = new SessionManager(_fileService.Object, logger.Object);
+        _sut = new SessionManager(_fileService.Object, pathGuard.Object, logger.Object);
         _tempDir = Path.Combine(Path.GetTempPath(), $"smt-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempDir);
     }
@@ -131,6 +133,29 @@ public class SessionManagerTests : IDisposable
 
         var bogus = Path.Combine(_tempDir, "missing.xml");
         _sut.ResolveCoberturaPath(bogus, "s1").Should().Be(sessionXml);
+    }
+
+    [Fact]
+    public void ResolveCoberturaPath_RejectsStateFilePointingOutsideAllowedRoot()
+    {
+        // Simulate a poisoned/stale state file that points to an allowed-root-escape.
+        // The path guard should cause the resolver to skip it instead of returning the
+        // escape path to the caller.
+        var outsideXml = Path.Combine(_tempDir, "outside.xml");
+        File.WriteAllText(outsideXml, "<coverage/>");
+
+        var stateDir = Path.Combine(_tempDir, ".mcp-coverage");
+        Directory.CreateDirectory(stateDir);
+        File.WriteAllText(Path.Combine(stateDir, ".coverage-state"), outsideXml);
+
+        var guard = new Mock<IPathGuard>();
+        guard.Setup(g => g.IsWithinAllowedRoot(outsideXml)).Returns(false);
+        guard.Setup(g => g.IsWithinAllowedRoot(It.Is<string>(s => s != outsideXml))).Returns(true);
+        var logger = new Mock<ILogger<SessionManager>>();
+        var sut = new SessionManager(_fileService.Object, guard.Object, logger.Object);
+
+        var bogus = Path.Combine(_tempDir, "missing.xml");
+        sut.ResolveCoberturaPath(bogus, null).Should().BeNull();
     }
 
     [Fact]

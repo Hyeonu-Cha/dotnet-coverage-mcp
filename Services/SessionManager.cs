@@ -16,11 +16,13 @@ public interface ISessionManager
 public class SessionManager : ISessionManager
 {
     private readonly IFileService _fileService;
+    private readonly IPathGuard _pathGuard;
     private readonly ILogger<SessionManager> _logger;
 
-    public SessionManager(IFileService fileService, ILogger<SessionManager> logger)
+    public SessionManager(IFileService fileService, IPathGuard pathGuard, ILogger<SessionManager> logger)
     {
         _fileService = fileService;
+        _pathGuard = pathGuard;
         _logger = logger;
     }
 
@@ -35,7 +37,7 @@ public class SessionManager : ISessionManager
 
     public string? ResolveCoberturaPath(string coberturaXmlPath, string? sessionId)
     {
-        if (File.Exists(coberturaXmlPath))
+        if (File.Exists(coberturaXmlPath) && _pathGuard.IsWithinAllowedRoot(coberturaXmlPath))
             return coberturaXmlPath;
 
         // Walk up from the supplied path to find .mcp-coverage/.
@@ -66,23 +68,28 @@ public class SessionManager : ISessionManager
         if (sessionId != null)
         {
             var scopedStateFile = Path.Combine(stateDir, $".coverage-state-{ComputeKey(sessionId)}");
-            if (File.Exists(scopedStateFile))
-            {
-                var resolved = File.ReadAllText(scopedStateFile).Trim();
-                if (File.Exists(resolved))
-                    return resolved;
-            }
+            var candidate = ReadStateFile(scopedStateFile);
+            if (candidate != null) return candidate;
         }
 
-        var stateFile = Path.Combine(stateDir, ".coverage-state");
-        if (File.Exists(stateFile))
+        return ReadStateFile(Path.Combine(stateDir, ".coverage-state"));
+    }
+
+    // State files hold arbitrary content. Treat them as untrusted: only return a path
+    // that exists AND falls inside the allowed root. Otherwise a stale or poisoned
+    // state file would let a caller read/write outside PathGuard's allowlist.
+    private string? ReadStateFile(string stateFile)
+    {
+        if (!File.Exists(stateFile)) return null;
+        var resolved = File.ReadAllText(stateFile).Trim();
+        if (!File.Exists(resolved)) return null;
+        if (!_pathGuard.IsWithinAllowedRoot(resolved))
         {
-            var resolved = File.ReadAllText(stateFile).Trim();
-            if (File.Exists(resolved))
-                return resolved;
+            _logger.LogWarning("Ignoring state file {State}: resolved path '{Resolved}' is outside the allowed root.",
+                stateFile, resolved);
+            return null;
         }
-
-        return null;
+        return resolved;
     }
 
     public void SaveCoverageState(string workingDir, string xmlPath, string filter, string? sessionId)

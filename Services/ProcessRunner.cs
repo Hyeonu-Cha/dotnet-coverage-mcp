@@ -86,11 +86,17 @@ public class ProcessRunner : IProcessRunner
         }
         catch (OperationCanceledException)
         {
-            // Process already killed by ctReg callback — drain remaining output
-            var partialOut = outTask.IsCompleted ? await outTask : "";
-            _ = errTask.IsCompleted ? await errTask : "";
+            // Process already killed by ctReg callback — drain remaining output with a
+            // bounded wait so we surface useful stderr without hanging on a stuck pipe.
+            // Callers compare Error against the string "cancelled"/"timeout", so keep that
+            // signal stable and fold any captured stderr into Output for diagnostics.
+            var partialOut = await DrainAsync(outTask);
+            var partialErr = await DrainAsync(errTask);
+            var combined = string.IsNullOrEmpty(partialErr)
+                ? partialOut
+                : partialOut + "\n--- stderr ---\n" + partialErr;
             var reason = ct.IsCancellationRequested ? "cancelled" : "timeout";
-            return new TestRunResult(false, partialOut, reason, -1, null);
+            return new TestRunResult(false, combined, reason, -1, null);
         }
 
         var output = await outTask;
@@ -114,6 +120,28 @@ public class ProcessRunner : IProcessRunner
         const int defaultMs = 600_000; // 10 minutes
         var raw = Environment.GetEnvironmentVariable("COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS");
         return int.TryParse(raw, out var v) && v > 0 ? v : defaultMs;
+    }
+
+    // Wait up to 1s for a read task to complete after the process has been killed.
+    // If it doesn't finish, observe its eventual exception so it never surfaces as
+    // an UnobservedTaskException and return an empty string.
+    private static async Task<string> DrainAsync(Task<string> task)
+    {
+        try
+        {
+            return await task.WaitAsync(TimeSpan.FromSeconds(1));
+        }
+        catch (TimeoutException)
+        {
+            _ = task.ContinueWith(
+                t => _ = t.Exception,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+            return "";
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     public async Task<ReportResult> RunReportGeneratorAsync(

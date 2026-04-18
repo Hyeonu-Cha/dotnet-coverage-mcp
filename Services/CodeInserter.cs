@@ -227,18 +227,19 @@ public class CodeInserter : ICodeInserter
     internal static string HoistUsingsIntoContent(string content, List<string> extractedUsings)
     {
         // Insert missing usings after the last existing `using ...;` line, or at the very top.
-        // De-dup based on the token between `using` and `;` (case-sensitive; namespaces are).
+        // Dedup key includes the `static` flag so `using X.Y;` and `using static X.Y;` are
+        // treated as distinct directives (they bind different things).
         var existing = new HashSet<string>();
-        foreach (Match m in Regex.Matches(content, @"^\s*using\s+(?:static\s+)?([\w.@=\s<>,]+);", RegexOptions.Multiline))
-            existing.Add(m.Groups[1].Value.Trim());
+        foreach (Match m in Regex.Matches(content, @"^\s*using\s+(static\s+)?([\w.@=\s<>,]+);", RegexOptions.Multiline))
+            existing.Add(UsingKey(m.Groups[1].Success, m.Groups[2].Value));
 
         var toAdd = new List<string>();
         foreach (var raw in extractedUsings)
         {
-            var tokenMatch = Regex.Match(raw, @"^using\s+(?:static\s+)?([\w.@=\s<>,]+);");
+            var tokenMatch = Regex.Match(raw, @"^using\s+(static\s+)?([\w.@=\s<>,]+);");
             if (!tokenMatch.Success) continue;
-            var token = tokenMatch.Groups[1].Value.Trim();
-            if (existing.Add(token))
+            var key = UsingKey(tokenMatch.Groups[1].Success, tokenMatch.Groups[2].Value);
+            if (existing.Add(key))
                 toAdd.Add(raw);
         }
         if (toAdd.Count == 0) return content;
@@ -258,22 +259,25 @@ public class CodeInserter : ICodeInserter
     private static CompilationUnitSyntax MergeUsings(CompilationUnitSyntax root, List<string> extractedUsings)
     {
         var existing = root.Usings
-            .Select(u => u.Name?.ToString())
-            .Where(n => n != null)
+            .Where(u => u.Name != null)
+            .Select(u => UsingKey(u.StaticKeyword.IsKind(SyntaxKind.StaticKeyword), u.Name!.ToString()))
             .ToHashSet();
 
         var toAdd = new List<UsingDirectiveSyntax>();
         foreach (var raw in extractedUsings)
         {
             var parsed = SyntaxFactory.ParseCompilationUnit(raw).Usings.FirstOrDefault();
-            if (parsed == null) continue;
-            var name = parsed.Name?.ToString();
-            if (name != null && existing.Add(name))
+            if (parsed == null || parsed.Name == null) continue;
+            var key = UsingKey(parsed.StaticKeyword.IsKind(SyntaxKind.StaticKeyword), parsed.Name.ToString());
+            if (existing.Add(key))
                 toAdd.Add(parsed);
         }
 
         return toAdd.Count == 0 ? root : root.AddUsings([.. toAdd]);
     }
+
+    private static string UsingKey(bool isStatic, string name) =>
+        (isStatic ? "static " : "") + name.Trim();
 
     internal static string NormalizeWhitespace(string input) =>
         Regex.Replace(input, @"\s+", " ").Trim();
