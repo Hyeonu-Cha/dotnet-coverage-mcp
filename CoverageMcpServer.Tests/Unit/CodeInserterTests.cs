@@ -413,4 +413,65 @@ public void X() { }";
         usings[0].Should().Be("using System;");
         usings[1].Should().Be("using System.Linq;");
     }
+
+    [Fact]
+    public void TryRoslynInsert_PrefersPublicTopLevelTypeOverInternalHelper()
+    {
+        // Regression: picking `.LastOrDefault()` on every descendant type would route new
+        // members into an `internal class HelperMock {}` tacked onto the bottom of the file.
+        var content = @"
+public class MyTests
+{
+    public void Existing() { }
+}
+
+internal class HelperMock { }";
+        var success = CodeInserter.TryRoslynInsert(content, "public void Added() { }", null, out var result, out _);
+
+        success.Should().BeTrue();
+        var testsIdx = result.IndexOf("class MyTests");
+        var helperIdx = result.IndexOf("class HelperMock");
+        var addedIdx = result.IndexOf("Added");
+        addedIdx.Should().BeGreaterThan(testsIdx);
+        addedIdx.Should().BeLessThan(helperIdx, "new member must land in MyTests, not after HelperMock");
+    }
+
+    [Fact]
+    public void TryRoslynInsert_IgnoresNestedTypeWhenPickingTarget()
+    {
+        // `DescendantNodes()` visits nested types — `.LastOrDefault()` on that would select the
+        // nested one and inject the new member inside `Nested`. PickTargetType must restrict to
+        // top-level types so the member lands in MyTests (after Nested closes but before MyTests closes).
+        var content = @"
+public class MyTests
+{
+    public void Existing() { }
+
+    private class Nested { }
+}";
+        var success = CodeInserter.TryRoslynInsert(content, "public void Added() { }", null, out var result, out _);
+
+        success.Should().BeTrue();
+        var nestedOpen = result.IndexOf('{', result.IndexOf("class Nested"));
+        var nestedClose = result.IndexOf('}', nestedOpen);
+        var myTestsClose = result.LastIndexOf('}');
+        var addedIdx = result.IndexOf("Added");
+
+        addedIdx.Should().BeGreaterThan(nestedClose, "new member must be outside the Nested class body");
+        addedIdx.Should().BeLessThan(myTestsClose, "new member must still be inside MyTests");
+    }
+
+    [Fact]
+    public async Task InsertCodeAsync_HonorsCancellation()
+    {
+        var path = Path.Combine(_tempDir, "Cancel.cs");
+        File.WriteAllText(path, "public class Foo { public void A() { } }");
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var act = () => _sut.InsertCodeAsync(path, "public void B() { }", null, cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
 }

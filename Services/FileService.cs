@@ -8,7 +8,7 @@ public interface IFileService
 {
     void AtomicWriteFile(string targetPath, string content);
     void SafeDelete(string directoryPath);
-    Task WithFileLockAsync(string filePath, Func<Task> action);
+    Task WithFileLockAsync(string filePath, Func<Task> action, CancellationToken ct = default);
     (int Lines, int MethodCount) GetFileMetadata(string filePath);
     bool IsExcludedPath(string filePath);
 }
@@ -52,20 +52,22 @@ public class FileService : IFileService
         }
     }
 
-    public async Task WithFileLockAsync(string filePath, Func<Task> action)
+    public async Task WithFileLockAsync(string filePath, Func<Task> action, CancellationToken ct = default)
     {
         var normalizedPath = NormalizeLockKey(filePath);
         const int maxRetries = 5;
 
         for (var attempt = 0; attempt < maxRetries; attempt++)
         {
+            ct.ThrowIfCancellationRequested();
+
             var entry = _fileLocks.AddOrUpdate(
                 normalizedPath,
                 _ => (new SemaphoreSlim(1, 1), DateTime.UtcNow),
                 (_, existing) => (existing.Lock, DateTime.UtcNow));
 
             EvictStaleLocks();
-            await entry.Lock.WaitAsync();
+            await entry.Lock.WaitAsync(ct);
 
             // Eviction runs without holding the lock, so the entry we acquired
             // may have been removed between AddOrUpdate and WaitAsync. If that
@@ -96,8 +98,9 @@ public class FileService : IFileService
     // Approximate — matches a line starting with `public` that ends with `(`, covering
     // the common C# shapes (methods, generic methods, constructors). Trades exactness
     // for speed so we don't parse every file in the repo with Roslyn just to build batches.
+    // The return-type group is optional so constructors (`public MyClass()`) are counted too.
     private static readonly Regex PublicMethodRegex = new(
-        @"^\s*public\s[^;{}()]*\s\w+\s*(?:<[^<>]+>)?\s*\(",
+        @"^\s*public\s+(?:[^;{}()]+\s+)?\w+\s*(?:<[^<>]+>)?\s*\(",
         RegexOptions.Multiline | RegexOptions.Compiled);
 
     public (int Lines, int MethodCount) GetFileMetadata(string filePath)

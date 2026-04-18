@@ -164,7 +164,11 @@ public class CoverageTools
 
     [McpServerTool]
     [Description("Insert or append C# test code into a test file. Use insertAfterAnchor to place code after a specific method or string, or omit to append inside the last class (before its closing brace, preserving namespace scope). Uses Roslyn AST for safe insertion with string-based fallback. File-level locking prevents concurrent write loss.")]
-    public async Task<string> AppendTestCode(string testFilePath, string codeToAppend, string? insertAfterAnchor = null)
+    public async Task<string> AppendTestCode(
+        string testFilePath,
+        string codeToAppend,
+        string? insertAfterAnchor = null,
+        CancellationToken cancellationToken = default)
     {
         try { _pathGuard.Validate(testFilePath, nameof(testFilePath)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
@@ -174,7 +178,7 @@ public class CoverageTools
 
         try
         {
-            var result = await _codeInserter.InsertCodeAsync(testFilePath, codeToAppend, insertAfterAnchor);
+            var result = await _codeInserter.InsertCodeAsync(testFilePath, codeToAppend, insertAfterAnchor, cancellationToken);
             var methodLabel = result.Method switch
             {
                 InsertionMethod.RoslynAst => "Roslyn AST",
@@ -184,6 +188,10 @@ public class CoverageTools
                 _ => "unknown"
             };
             return $"Successfully inserted via {methodLabel} in {testFilePath}.\nNew file length: {result.Content.Length} chars";
+        }
+        catch (OperationCanceledException)
+        {
+            return JsonHelper.Error("cancelled", "AppendTestCode was cancelled by the client.");
         }
         catch (KeyNotFoundException ex)
         {
@@ -396,8 +404,7 @@ public class CoverageTools
             totalLines = files.Sum(f => f.lines),
             lineBudget,
             batchCount = batches.Count,
-            batches,
-            files
+            batches
         });
     }
 

@@ -33,9 +33,9 @@ Autonomously run tests, identify coverage gaps, write targeted unit tests, and r
 ### Step 0: Setup and discover scope
 1. Verify `reportgenerator` is installed (`dotnet tool list -g`); install if missing
 2. Call `GetSourceFiles` with `sourcePath` and `lineBudget` to get:
-   - `files` — all `.cs` files with `lines` and `methodCount` metadata
-   - `batches` — files grouped by line budget (small files together, large files solo)
+   - `batches` — files grouped by line budget (small files together, large files solo), each file with `path`, `lines`, and `methodCount`
    - `batchCount` — how many cycles to expect
+   - `totalFiles` / `totalLines` — headline counts for planning
 
 Example response:
 ```json

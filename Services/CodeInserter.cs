@@ -12,7 +12,7 @@ public record InsertionResult(InsertionMethod Method, string Content);
 
 public interface ICodeInserter
 {
-    Task<InsertionResult> InsertCodeAsync(string testFilePath, string codeToAppend, string? insertAfterAnchor);
+    Task<InsertionResult> InsertCodeAsync(string testFilePath, string codeToAppend, string? insertAfterAnchor, CancellationToken ct = default);
 }
 
 public class CodeInserter : ICodeInserter
@@ -26,7 +26,7 @@ public class CodeInserter : ICodeInserter
         _logger = logger;
     }
 
-    public async Task<InsertionResult> InsertCodeAsync(string testFilePath, string codeToAppend, string? insertAfterAnchor)
+    public async Task<InsertionResult> InsertCodeAsync(string testFilePath, string codeToAppend, string? insertAfterAnchor, CancellationToken ct = default)
     {
         InsertionResult? result = null;
 
@@ -46,7 +46,7 @@ public class CodeInserter : ICodeInserter
             content = content.TrimEnd();
             result = InsertWithStringFallback(testFilePath, content, codeToAppend, insertAfterAnchor);
             await Task.CompletedTask;
-        });
+        }, ct);
 
         return result!;
     }
@@ -184,6 +184,23 @@ public class CodeInserter : ICodeInserter
         return i;
     }
 
+    // Pick the class to receive new members. We prefer top-level (non-nested) types to avoid
+    // accidentally injecting into a private helper nested inside the test class. Among top-level
+    // types, a public type wins over an internal helper like `internal class HelperMock {}` that
+    // developers often put at the bottom of a test file. Falls back to any descendant type only
+    // when no top-level types exist (unusual).
+    internal static TypeDeclarationSyntax? PickTargetType(CompilationUnitSyntax root)
+    {
+        var topLevel = root.DescendantNodes()
+            .OfType<TypeDeclarationSyntax>()
+            .Where(t => t.Parent is CompilationUnitSyntax or BaseNamespaceDeclarationSyntax)
+            .ToList();
+
+        return topLevel.LastOrDefault(t => t.Modifiers.Any(SyntaxKind.PublicKeyword))
+            ?? topLevel.LastOrDefault()
+            ?? root.DescendantNodes().OfType<TypeDeclarationSyntax>().LastOrDefault();
+    }
+
     internal static bool TryRoslynInsert(string content, string codeToAppend, string? insertAfterAnchor, out string result, out string? failureReason)
     {
         result = "";
@@ -195,7 +212,7 @@ public class CodeInserter : ICodeInserter
             var tree = CSharpSyntaxTree.ParseText(content);
             var root = tree.GetCompilationUnitRoot();
 
-            var targetType = root.DescendantNodes().OfType<TypeDeclarationSyntax>().LastOrDefault();
+            var targetType = PickTargetType(root);
             if (targetType == null) { failureReason = "no type declaration found in file"; return false; }
 
             var wrapperTree = CSharpSyntaxTree.ParseText($"class __RoslynWrapper__ {{\n{memberCode}\n}}");

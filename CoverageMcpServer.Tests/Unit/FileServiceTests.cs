@@ -172,6 +172,24 @@ public class Bar
     }
 
     [Fact]
+    public void GetFileMetadata_CountsPublicConstructors()
+    {
+        // Regression: the old regex required a return type between `public` and the name,
+        // so constructors (`public MyClass()`) were silently skipped from the count.
+        var path = Path.Combine(_tempDir, "WithCtor.cs");
+        File.WriteAllText(path, @"
+public class Widget
+{
+    public Widget() { }
+    public Widget(int x) { }
+    public void DoWork() { }
+}
+");
+        var (_, methods) = _sut.GetFileMetadata(path);
+        methods.Should().Be(3);
+    }
+
+    [Fact]
     public void GetFileMetadata_ReturnsDefaultsOnError()
     {
         var (lines, methods) = _sut.GetFileMetadata(Path.Combine(_tempDir, "nonexistent.cs"));
