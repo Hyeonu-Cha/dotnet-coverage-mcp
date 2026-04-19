@@ -462,6 +462,22 @@ public class MyTests
     }
 
     [Fact]
+    public void HoistUsingsIntoContent_DedupsAgainstExistingGlobalUsing()
+    {
+        // If the target file already hoists a `global using X;` (common when the project
+        // centralizes usings), the string-fallback dedup regex must recognize it — otherwise
+        // the same import gets inserted again as a plain `using X;`.
+        var content = "global using System.Text;\n\nnamespace N { class C {} }\n";
+        var toAdd = new List<string> { "using System.Text;" };
+
+        var result = CodeInserter.HoistUsingsIntoContent(content, toAdd);
+
+        var count = System.Text.RegularExpressions.Regex
+            .Matches(result, @"using\s+System\.Text;").Count;
+        count.Should().Be(1, "the duplicate plain using must not be added when a global using already covers it");
+    }
+
+    [Fact]
     public async Task InsertCodeAsync_HonorsCancellation()
     {
         var path = Path.Combine(_tempDir, "Cancel.cs");

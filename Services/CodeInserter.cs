@@ -278,8 +278,11 @@ public class CodeInserter : ICodeInserter
         // Insert missing usings after the last existing `using ...;` line, or at the very top.
         // Split alias from name so keys have the same shape as the Roslyn path and are
         // insensitive to internal whitespace (`M=X` and `M = X` collapse correctly).
+        // Include `global using X;` too — the target file may hoist globals (e.g. from
+        // GlobalUsings.cs or a newer csproj `<Using>` emitting global directives), and
+        // without this prefix the dedup HashSet would miss them and let a duplicate through.
         var existing = new HashSet<string>();
-        foreach (Match m in Regex.Matches(content, @"^\s*using\s+(static\s+)?([\w.@=\s<>,]+);", RegexOptions.Multiline))
+        foreach (Match m in Regex.Matches(content, @"^\s*(?:global\s+)?using\s+(static\s+)?([\w.@=\s<>,]+);", RegexOptions.Multiline))
             existing.Add(KeyFromRegexBody(m.Groups[1].Success, m.Groups[2].Value));
 
         var toAdd = new List<string>();
@@ -293,7 +296,7 @@ public class CodeInserter : ICodeInserter
         }
         if (toAdd.Count == 0) return content;
 
-        var lastUsing = Regex.Matches(content, @"^\s*using\s+(?:static\s+)?[\w.@=\s<>,]+;\r?\n", RegexOptions.Multiline)
+        var lastUsing = Regex.Matches(content, @"^\s*(?:global\s+)?using\s+(?:static\s+)?[\w.@=\s<>,]+;\r?\n", RegexOptions.Multiline)
             .LastOrDefault();
         var block = string.Join("\n", toAdd) + "\n";
 

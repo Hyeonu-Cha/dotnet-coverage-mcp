@@ -70,8 +70,8 @@ public class CoberturaService : ICoberturaService
                 {
                     foreach (var method in methods)
                     {
-                        var linePct = method?["linecoverage"]?.GetValue<double>() ?? 0;
-                        var branchPct = method?["branchcoverage"]?.GetValue<double>() ?? 0;
+                        var linePct = ReadPercent(method?["linecoverage"]);
+                        var branchPct = ReadPercent(method?["branchcoverage"]);
                         methodList.Add((
                             name: method?["name"]?.GetValue<string>() ?? "",
                             line: Math.Round(linePct / 100.0, 4),
@@ -80,8 +80,8 @@ public class CoberturaService : ICoberturaService
                     methodList = methodList.OrderBy(m => m.branch).ToList();
                 }
 
-                var classLinePct = cls?["linecoverage"]?.GetValue<double>() ?? 0;
-                var classBranchPct = cls?["branchcoverage"]?.GetValue<double>() ?? 0;
+                var classLinePct = ReadPercent(cls?["linecoverage"]);
+                var classBranchPct = ReadPercent(cls?["branchcoverage"]);
 
                 result.Add(new
                 {
@@ -94,6 +94,17 @@ public class CoberturaService : ICoberturaService
         }
 
         return result;
+    }
+
+    // ReportGenerator emits whole-number coverage as integers (e.g., `"linecoverage": 100`),
+    // and JsonNode.GetValue<double>() throws on an integer-typed value. Route through
+    // Deserialize<double> so both 100 and 100.5 parse; fall back to 0 on any other shape
+    // so one malformed field doesn't crash the whole summary read.
+    private static double ReadPercent(JsonNode? node)
+    {
+        if (node == null) return 0;
+        try { return node.Deserialize<double>(); }
+        catch { return 0; }
     }
 
     public FileCoverageResult GetFileCoverage(string coberturaXmlPath, string sourceFileName, double targetRate)

@@ -67,6 +67,33 @@ public class CoberturaServiceTests : IDisposable
         _sut.ParseSummary(path).Should().BeEmpty();
     }
 
+    [Fact]
+    public void ParseSummary_AcceptsIntegerCoverageValues()
+    {
+        // ReportGenerator emits whole-number percentages as integers (no trailing `.0`).
+        // JsonNode.GetValue<double>() throws on an integer-typed JSON value, so this used
+        // to surface as a parseFailed error from GetCoverageSummary.
+        var path = WriteSummaryJson(@"{
+  ""coverage"": {
+    ""assemblies"": [{
+      ""classes"": [{
+        ""name"": ""MyApp.Foo"",
+        ""linecoverage"": 100,
+        ""branchcoverage"": 0,
+        ""methods"": [{
+          ""name"": ""DoWork"",
+          ""linecoverage"": 100,
+          ""branchcoverage"": 0
+        }]
+      }]
+    }]
+  }
+}");
+        var act = () => _sut.ParseSummary(path);
+        act.Should().NotThrow();
+        _sut.ParseSummary(path).Should().HaveCount(1);
+    }
+
     // --- GetFileCoverage ---
 
     [Fact]
