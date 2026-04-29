@@ -84,7 +84,7 @@ Returns uncovered branch conditions per line with `matchCount` showing how many 
 ### 6. Handle Build Errors
 
 If `RunTestsWithCoverage` returns a build error after writing tests:
-- Use your editor (Edit tool) to fix the syntax error — do NOT use `AppendTestCode` to fix existing code
+- Use your file-editing tool to fix the syntax error — do NOT use `AppendTestCode` to fix existing code
 - If the same test fails 3 times, delete it and move on
 
 ### 7. Re-run & Diff

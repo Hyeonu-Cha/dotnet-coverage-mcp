@@ -231,6 +231,24 @@ public class CoverageToolsTests
         }
     }
 
+    [Fact]
+    public async Task AppendTestCode_IOException_ReturnsInsertFailedError()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new IOException("disk full"));
+
+            var result = await _sut.AppendTestCode(tempFile, "code");
+            AssertError(result, "insertFailed");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
     // --- GetFileCoverage ---
 
     [Fact]

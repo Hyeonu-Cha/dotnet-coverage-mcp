@@ -26,13 +26,14 @@ AI Client  <--stdio/MCP-->  CoverageMcpServer  <--shell-->  dotnet test + report
 
 | Tool | Description |
 |------|-------------|
-| `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` project. Returns file metadata (lines, method count) and smart batches grouped by `lineBudget`. |
+| `GetSourceFiles` | Discover `.cs` files from a file, folder, `.csproj` project, or comma/semicolon-separated list of `.cs` paths (e.g., from `git diff --name-only`). Returns file metadata (lines, method count) and smart batches grouped by `lineBudget`. |
 | `RunTestsWithCoverage` | Run `dotnet test` with XPlat Code Coverage, generate a JSON summary via `reportgenerator`. Returns paths to `Summary.json` and `coverage.cobertura.xml`. Supports `forceRestore` and `sessionId` for concurrent isolation. |
 | `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data sorted by branch coverage ascending (lowest first). |
 | `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes have line >= 80% and branch >= 80%). Supports `sessionId`. |
 | `GetUncoveredBranches` | Find uncovered branch conditions for methods matching a given name. Returns all matching methods with partial name support. Supports `sessionId`. |
 | `GetCoverageDiff` | Compare current Cobertura XML against baseline. Shows method-level changes including new and removed methods. Supports `sessionId` for concurrent isolation. |
 | `AppendTestCode` | Insert or append C# test code into a test file. Supports anchor-based insertion with whitespace-tolerant fallback matching. Uses atomic writes to prevent file corruption. |
+| `CleanupSession` | Remove stale session artifacts. Pass `sessionId` to clean a specific session, or omit to remove all artifacts older than `maxAgeMinutes` (default 120). |
 
 ## Batch Workflow
 
@@ -119,7 +120,7 @@ Or point directly at the compiled executable:
 ### `GetSourceFiles`
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `path` | string | Yes | Path to a `.cs` file, folder, or `.csproj` project |
+| `path` | string | Yes | Path to a `.cs` file, folder, `.csproj` project, or a comma/semicolon-separated list of `.cs` paths (useful for piping `git diff --name-only`). |
 | `lineBudget` | int | No | Max total lines per batch (default: 300). Small files are grouped together; large files get their own batch. |
 
 ### `RunTestsWithCoverage`
@@ -162,7 +163,14 @@ Or point directly at the compiled executable:
 |-----------|------|----------|-------------|
 | `testFilePath` | string | Yes | Full path to the target `.cs` test file |
 | `codeToAppend` | string | Yes | C# code to insert |
-| `insertAfterAnchor` | string | No | If provided, inserts code after the last occurrence of this string (with whitespace-tolerant fallback). If omitted, appends before the last `}`. |
+| `insertAfterAnchor` | string | No | If provided, inserts code after the last occurrence of this string (with whitespace-tolerant fallback). If omitted, appends inside the last class (before its closing brace, preserving namespace scope). |
+
+### `CleanupSession`
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `workingDir` | string | Yes | Directory whose `.mcp-coverage/` and session-scoped `TestResults*`/`coveragereport*` directories should be cleaned. |
+| `sessionId` | string | No | Clean only artifacts for this session. Omit to clean stale artifacts across all sessions. |
+| `maxAgeMinutes` | int | No | When `sessionId` is omitted, only artifacts older than this are removed (default: 120). |
 
 ## State Files
 

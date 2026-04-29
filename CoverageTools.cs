@@ -197,6 +197,10 @@ public class CoverageTools
         {
             return JsonHelper.Error("anchorNotFound", ex.Message);
         }
+        catch (Exception ex)
+        {
+            return JsonHelper.Error("insertFailed", $"Failed to insert test code: {ex.Message}");
+        }
     }
 
     // --- 5. GetCoverageDiff ---
