@@ -1,6 +1,6 @@
 ---
 name: run-coverage
-description: "Run .NET tests with code coverage and display a summary. USE FOR: generating a coverage report for a test project, getting baseline line/branch coverage per class and method, checking current coverage percentages. Calls RunTestsWithCoverage then GetCoverageSummary via TestCoverageMcpServer MCP tools. Requires testProjectPath and a test filter string. DO NOT USE FOR: iterative improvement loops (use improve-test-coverage), finding specific uncovered branches (use analyze-coverage-gaps)."
+description: "Run .NET tests with code coverage and display a summary. USE FOR: generating a coverage report for a test project, getting baseline line/branch coverage per class and method, checking current coverage percentages. Calls RunTestsWithCoverage then GetCoverageSummary via dotnet-coverage-mcp MCP tools. Requires testProjectPath and a test filter string. DO NOT USE FOR: iterative improvement loops (use improve-test-coverage), finding specific uncovered branches (use analyze-coverage-gaps)."
 ---
 
 # Run Tests with Coverage

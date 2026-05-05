@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using ModelContextProtocol.Server;
-using CoverageMcpServer.Helpers;
-using CoverageMcpServer.Services;
+using DotNetCoverageMcp.Helpers;
+using DotNetCoverageMcp.Services;
 
 [McpServerToolType]
 public class CoverageTools

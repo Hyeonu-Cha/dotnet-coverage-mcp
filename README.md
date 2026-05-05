@@ -1,7 +1,7 @@
-# CoverageMcpServer
+# dotnet-coverage-mcp
 
-[![build](https://github.com/Hyeonu-Cha/TestCoverageMcpServer/actions/workflows/dotnet.yml/badge.svg)](https://github.com/Hyeonu-Cha/TestCoverageMcpServer/actions/workflows/dotnet.yml)
-[![NuGet](https://img.shields.io/nuget/v/HyeonuCha.CoverageMcpServer.svg)](https://www.nuget.org/packages/HyeonuCha.CoverageMcpServer/)
+[![build](https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/actions/workflows/dotnet.yml/badge.svg)](https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/actions/workflows/dotnet.yml)
+[![NuGet](https://img.shields.io/nuget/v/dotnet-coverage-mcp.svg)](https://www.nuget.org/packages/dotnet-coverage-mcp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An MCP (Model Context Protocol) server that exposes .NET code coverage tooling as callable tools for AI assistants such as Claude Code or Gemini CLI.
@@ -23,7 +23,7 @@ This server lets an AI assistant run unit tests, collect coverage data, and anal
 The server starts as a console process and communicates over **stdio** using the MCP protocol. An MCP-compatible client (Claude Code, Gemini CLI, etc.) launches the process and calls its tools as if they were functions.
 
 ```
-AI Client  <--stdio/MCP-->  CoverageMcpServer  <--shell-->  dotnet test + reportgenerator
+AI Client  <--stdio/MCP-->  dotnet-coverage-mcp  <--shell-->  dotnet test + reportgenerator
 ```
 
 ## Available Tools
@@ -82,15 +82,15 @@ Without `sessionId`, tools use shared defaults — safe for single-agent use.
 The recommended way to install is as a global .NET tool from NuGet:
 
 ```bash
-dotnet tool install --global HyeonuCha.CoverageMcpServer
+dotnet tool install --global dotnet-coverage-mcp
 ```
 
-After install, the `coverage-mcp-server` command is on your PATH.
+After install, the `dotnet-coverage-mcp` command is on your PATH.
 
 ## Build & Run (from source)
 
 ```bash
-cd <path-to-CoverageMcpServer>
+cd <path-to-dotnet-coverage-mcp>
 
 # Restore dependencies
 dotnet restore
@@ -112,7 +112,7 @@ If you installed via `dotnet tool`, point your MCP client at the global command:
 {
   "mcpServers": {
     "coverage": {
-      "command": "coverage-mcp-server",
+      "command": "dotnet-coverage-mcp",
       "transport": "stdio",
       "env": {
         "COVERAGE_MCP_ALLOWED_ROOT": "/path/to/your/repo"
@@ -129,7 +129,7 @@ To run from source instead, use `dotnet run`:
   "mcpServers": {
     "coverage": {
       "command": "dotnet",
-      "args": ["run", "--project", "<path-to-CoverageMcpServer>"],
+      "args": ["run", "--project", "<path-to-dotnet-coverage-mcp>"],
       "transport": "stdio"
     }
   }
@@ -142,7 +142,7 @@ Or point directly at the compiled executable:
 {
   "mcpServers": {
     "coverage": {
-      "command": "<path-to-CoverageMcpServer>\\bin\\Debug\\net9.0\\CoverageMcpServer.exe",
+      "command": "<path-to-dotnet-coverage-mcp>\\bin\\Debug\\net9.0\\DotNetCoverageMcp.exe",
       "transport": "stdio"
     }
   }
@@ -238,7 +238,7 @@ The skills support NUnit, xUnit, and MSTest with framework-agnostic reference do
 
 ## Security
 
-CoverageMcpServer runs as a local stdio process and validates every tool argument against `COVERAGE_MCP_ALLOWED_ROOT` to confine filesystem access. See [SECURITY.md](SECURITY.md) for the threat model, hardening recommendations, and how to report a vulnerability.
+dotnet-coverage-mcp runs as a local stdio process and validates every tool argument against `COVERAGE_MCP_ALLOWED_ROOT` to confine filesystem access. See [SECURITY.md](SECURITY.md) for the threat model, hardening recommendations, and how to report a vulnerability.
 
 ## Contributing
 
@@ -257,7 +257,7 @@ One-time setup:
 To cut a release:
 
 ```bash
-# Update <Version> in CoverageMcpServer.csproj and "version" in server.json
+# Update <Version> in DotNetCoverageMcp.csproj and "version" in server.json
 git commit -am "Release v0.1.0"
 git tag v0.1.0
 git push origin main --tags

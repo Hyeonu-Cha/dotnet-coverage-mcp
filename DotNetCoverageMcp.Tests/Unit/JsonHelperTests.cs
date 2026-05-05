@@ -1,8 +1,8 @@
 using System.Text.Json;
-using CoverageMcpServer.Helpers;
+using DotNetCoverageMcp.Helpers;
 using FluentAssertions;
 
-namespace CoverageMcpServer.Tests.Unit;
+namespace DotNetCoverageMcp.Tests.Unit;
 
 public class JsonHelperTests
 {

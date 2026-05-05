@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to CoverageMcpServer are documented in this file.
+All notable changes to dotnet-coverage-mcp are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Least-privilege `permissions: contents: read` block on the `build` workflow.
 
 ### Changed
+- **Project renamed** from `CoverageMcpServer` to `dotnet-coverage-mcp`. NuGet
+  package id is `dotnet-coverage-mcp`, tool command is `dotnet-coverage-mcp`,
+  and the C# namespace is `DotNetCoverageMcp`. The new name reflects the
+  .NET-only scope and aligns with MCP registry naming conventions.
 - `build` workflow now runs on a `ubuntu-latest`, `windows-latest`, `macos-latest`
   matrix to verify cross-platform support claimed in the README.
 - `AppendTestCode` now catches generic exceptions and returns a structured
@@ -29,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Prior to the introduction of this changelog, changes were tracked only in commit
 history and merged pull requests. See `git log` and the
-[Pulls page](https://github.com/Hyeonu-Cha/TestCoverageMcpServer/pulls?q=is%3Apr+is%3Amerged)
+[Pulls page](https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/pulls?q=is%3Apr+is%3Amerged)
 for context.
 
 Highlights:

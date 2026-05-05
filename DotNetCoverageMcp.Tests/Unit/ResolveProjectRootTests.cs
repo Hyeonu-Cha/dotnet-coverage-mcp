@@ -1,6 +1,6 @@
 using FluentAssertions;
 
-namespace CoverageMcpServer.Tests.Unit;
+namespace DotNetCoverageMcp.Tests.Unit;
 
 public class ResolveProjectRootTests
 {

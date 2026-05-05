@@ -1,10 +1,10 @@
 using System.Globalization;
-using CoverageMcpServer.Services;
+using DotNetCoverageMcp.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
 
-namespace CoverageMcpServer.Tests.Unit;
+namespace DotNetCoverageMcp.Tests.Unit;
 
 public class CoberturaServiceTests : IDisposable
 {

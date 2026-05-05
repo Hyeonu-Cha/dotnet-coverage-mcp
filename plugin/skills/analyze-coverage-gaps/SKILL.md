@@ -1,6 +1,6 @@
 ---
 name: analyze-coverage-gaps
-description: "Identify uncovered branches and coverage changes for a specific .NET method. USE FOR: finding exactly which branch conditions are untested in a method, comparing current coverage against the previous baseline to see what improved. Calls GetUncoveredBranches and GetCoverageDiff via TestCoverageMcpServer MCP tools. DO NOT USE FOR: running tests (use run-coverage), full iterative improvement loops (use improve-test-coverage)."
+description: "Identify uncovered branches and coverage changes for a specific .NET method. USE FOR: finding exactly which branch conditions are untested in a method, comparing current coverage against the previous baseline to see what improved. Calls GetUncoveredBranches and GetCoverageDiff via dotnet-coverage-mcp MCP tools. DO NOT USE FOR: running tests (use run-coverage), full iterative improvement loops (use improve-test-coverage)."
 ---
 
 # Analyze Coverage Gaps
