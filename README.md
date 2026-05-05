@@ -162,10 +162,11 @@ Or point directly at the compiled executable:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `testProjectPath` | string | Yes | Full path to the `.csproj` test project |
-| `filter` | string | Yes | Test filter string (matched against `FullyQualifiedName`). Broad filters containing `*` or `,` skip `/p:Include` scoping. |
+| `filter` | string | Yes | Test filter string (matched against `FullyQualifiedName`). Use `*` or `,` for broad runs across multiple test classes. |
 | `workingDir` | string | No | Working directory; defaults to the project directory |
 | `forceRestore` | bool | No | When `true`, skips the `--no-restore` flag. Use after scaffolding a new test project or adding NuGet packages. |
 | `sessionId` | string | No | Isolates output directories (`TestResults-{hash}/`, `coveragereport-{hash}/`) and state files for concurrent multi-agent use. |
+| `includeClass` | string | No | Restrict coverage collection to types matching this name. Forwarded to coverlet as `/p:Include=[*]*{includeClass}`. Always honored when set, independent of `filter` — pass an explicit value to scope coverage; omit it to collect coverage for everything the run touches. |
 
 ### `GetCoverageSummary`
 | Parameter | Type | Required | Description |
@@ -266,11 +267,15 @@ One-time setup:
 To cut a release:
 
 ```bash
-# Update <Version> in DotNetCoverageMcp.csproj and "version" in server.json
+# Update "version" in server.json (both the top-level and packages[0])
+# to match the tag you are about to push, then:
 git commit -am "Release v0.1.0"
 git tag v0.1.0
 git push origin main --tags
 ```
+
+The package version is injected from the git tag via `-p:Version=` in the
+release workflow, so there is no `<Version>` element to edit in the csproj.
 
 The workflow builds, tests, packs, pushes the package to NuGet, and creates a GitHub Release with auto-generated notes.
 
