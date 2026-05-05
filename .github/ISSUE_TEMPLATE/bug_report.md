@@ -22,7 +22,7 @@ What you expected to happen.
 What actually happened. Paste any error JSON returned by the tool.
 
 ## Environment
-- CoverageMcpServer commit / version:
+- dotnet-coverage-mcp commit / version:
 - .NET SDK version (`dotnet --version`):
 - OS and version:
 - MCP client (Claude Code / Gemini CLI / other) and version:

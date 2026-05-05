@@ -1,7 +1,7 @@
-using CoverageMcpServer.Services;
+using DotNetCoverageMcp.Services;
 using FluentAssertions;
 
-namespace CoverageMcpServer.Tests.Unit;
+namespace DotNetCoverageMcp.Tests.Unit;
 
 public class ProcessRunnerTests
 {

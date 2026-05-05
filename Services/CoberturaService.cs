@@ -3,9 +3,9 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
-using CoverageMcpServer.Helpers;
+using DotNetCoverageMcp.Helpers;
 
-namespace CoverageMcpServer.Services;
+namespace DotNetCoverageMcp.Services;
 
 public interface ICoberturaService
 {

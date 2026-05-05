@@ -1,6 +1,6 @@
 ---
 name: improve-test-coverage
-description: "Iteratively write .NET unit tests to improve code coverage toward 80% line and branch targets. USE FOR: autonomously running tests, finding gaps, writing targeted tests, and repeating until 80% coverage or plateau. Calls all 7 TestCoverageMcpServer MCP tools: GetSourceFiles, RunTestsWithCoverage, GetCoverageSummary, GetCoverageDiff, GetUncoveredBranches, GetFileCoverage, AppendTestCode. Uses smart batching by line budget — small files grouped, large files solo. DO NOT USE FOR: just running tests without writing new ones (use run-coverage), inspecting a single method (use analyze-coverage-gaps)."
+description: "Iteratively write .NET unit tests to improve code coverage toward 80% line and branch targets. USE FOR: autonomously running tests, finding gaps, writing targeted tests, and repeating until 80% coverage or plateau. Calls all 7 dotnet-coverage-mcp MCP tools: GetSourceFiles, RunTestsWithCoverage, GetCoverageSummary, GetCoverageDiff, GetUncoveredBranches, GetFileCoverage, AppendTestCode. Uses smart batching by line budget — small files grouped, large files solo. DO NOT USE FOR: just running tests without writing new ones (use run-coverage), inspecting a single method (use analyze-coverage-gaps)."
 ---
 
 # Improve Test Coverage Iteratively

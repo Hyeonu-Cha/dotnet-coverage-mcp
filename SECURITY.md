@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-CoverageMcpServer is in early development. Security fixes target the latest released
+dotnet-coverage-mcp is in early development. Security fixes target the latest released
 version on the `main` branch only.
 
 | Version | Supported |
@@ -15,7 +15,7 @@ version on the `main` branch only.
 If you find a security issue, please **do not open a public GitHub issue**. Instead:
 
 1. Open a private GitHub Security Advisory at
-   <https://github.com/Hyeonu-Cha/TestCoverageMcpServer/security/advisories/new>, or
+   <https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/security/advisories/new>, or
 2. Email the maintainer at the address listed on the [GitHub profile](https://github.com/Hyeonu-Cha).
 
 Please include:
@@ -29,7 +29,7 @@ or mitigation within 30 days for high-severity issues.
 
 ## Threat Model
 
-CoverageMcpServer runs as a local stdio process launched by an MCP client (Claude Code,
+dotnet-coverage-mcp runs as a local stdio process launched by an MCP client (Claude Code,
 Gemini CLI, etc.) and is not exposed to the network. The threat model assumes:
 
 - The MCP client is trusted to launch the server with the user's permissions.
@@ -47,7 +47,7 @@ The server defends against the following classes of issue:
 
 ## Hardening Recommendations
 
-Operators running CoverageMcpServer in shared environments should:
+Operators running dotnet-coverage-mcp in shared environments should:
 
 - Set `COVERAGE_MCP_ALLOWED_ROOT` to the repository root. When unset, the server
   logs a warning once and accepts any path.
