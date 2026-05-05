@@ -1,4 +1,4 @@
-# Contributing to CoverageMcpServer
+# Contributing to dotnet-coverage-mcp
 
 Thanks for your interest in contributing. This document covers the development
 workflow, expectations for pull requests, and how to report issues.
@@ -46,7 +46,7 @@ CLI) per the README's MCP Client Configuration section.
    feature work.
 3. **Match existing style**. Service classes go under `Services/`, MCP tool
    methods stay in `CoverageTools.cs`, integration tests under
-   `CoverageMcpServer.Tests/Integration/`.
+   `DotNetCoverageMcp.Tests/Integration/`.
 4. **Write or update tests**. Bug fixes need a regression test; new tools need
    integration coverage.
 5. **Update docs**. If a tool's parameters change, update `README.md` and the

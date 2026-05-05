@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace CoverageMcpServer.Helpers;
+namespace DotNetCoverageMcp.Helpers;
 
 public static class JsonHelper
 {

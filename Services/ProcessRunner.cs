@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 
-namespace CoverageMcpServer.Services;
+namespace DotNetCoverageMcp.Services;
 
 public record TestRunResult(bool Success, string Output, string Error, int ExitCode, string? CoverageXmlPath);
 public record ReportResult(bool Success, string? SummaryPath, string? ErrorDetail);

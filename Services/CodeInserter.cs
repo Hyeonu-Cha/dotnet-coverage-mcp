@@ -4,7 +4,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Extensions.Logging;
 
-namespace CoverageMcpServer.Services;
+namespace DotNetCoverageMcp.Services;
 
 public enum InsertionMethod { RoslynAst, StringFallback, StringFallbackNormalized, Appended }
 

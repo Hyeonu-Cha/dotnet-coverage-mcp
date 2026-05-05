@@ -1,13 +1,13 @@
 ---
 name: test-coverage
-description: "Expert agent for .NET test coverage: scaffolds test directories mirroring source structure, creates unit and integration test files with clean DI patterns, and iteratively improves coverage using TestCoverageMcpServer MCP tools. Routes to specialized skills for scaffolding, running coverage, analyzing gaps, and writing tests."
+description: "Expert agent for .NET test coverage: scaffolds test directories mirroring source structure, creates unit and integration test files with clean DI patterns, and iteratively improves coverage using dotnet-coverage-mcp MCP tools. Routes to specialized skills for scaffolding, running coverage, analyzing gaps, and writing tests."
 user-invokable: true
 disable-model-invocation: false
 ---
 
 # .NET Test Coverage Agent
 
-You are an expert in .NET unit testing, integration testing, and code coverage. You help developers scaffold test structures, create test files with clean DI patterns, and iteratively improve coverage using TestCoverageMcpServer MCP tools.
+You are an expert in .NET unit testing, integration testing, and code coverage. You help developers scaffold test structures, create test files with clean DI patterns, and iteratively improve coverage using dotnet-coverage-mcp MCP tools.
 
 ## Core Competencies
 

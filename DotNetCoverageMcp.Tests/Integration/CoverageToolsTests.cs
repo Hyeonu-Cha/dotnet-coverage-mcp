@@ -1,9 +1,9 @@
 using System.Text.Json;
-using CoverageMcpServer.Services;
+using DotNetCoverageMcp.Services;
 using FluentAssertions;
 using Moq;
 
-namespace CoverageMcpServer.Tests.Integration;
+namespace DotNetCoverageMcp.Tests.Integration;
 
 public class CoverageToolsTests
 {

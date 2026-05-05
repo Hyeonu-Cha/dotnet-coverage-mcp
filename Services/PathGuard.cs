@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace CoverageMcpServer.Services;
+namespace DotNetCoverageMcp.Services;
 
 public interface IPathGuard
 {

@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
-namespace CoverageMcpServer.Services;
+namespace DotNetCoverageMcp.Services;
 
 public interface IFileService
 {
