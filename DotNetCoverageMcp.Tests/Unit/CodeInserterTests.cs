@@ -91,9 +91,7 @@ public class MyTests
         var success = CodeInserter.TryRoslynInsert(content, code, null, out var result, out _);
 
         success.Should().BeTrue();
-        // Should not introduce \r\n
-        result.Replace("\r\n", "").Should().Be(result.Replace("\n", "").Replace("\r", "") == result.Replace("\r\n", "")
-            ? result.Replace("\r\n", "") : result.Replace("\r\n", ""));
+        result.Should().NotContain("\r\n");
     }
 
     [Fact]
