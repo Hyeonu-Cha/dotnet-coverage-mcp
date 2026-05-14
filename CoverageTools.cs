@@ -42,11 +42,17 @@ public class CoverageTools
     [McpServerTool]
     [Description("Run `dotnet test` with XPlat Code Coverage and generate a JSON summary. Returns paths to Summary.json and Cobertura XML.")]
     public async Task<string> RunTestsWithCoverage(
+        [Description("Absolute path to the .csproj test project. Must be inside COVERAGE_MCP_ALLOWED_ROOT when that environment variable is set.")]
         string testProjectPath,
+        [Description("Test filter matched against FullyQualifiedName. Pass a class or method name (e.g. 'OrderServiceTests' or 'OrderServiceTests.PlacesOrder'); '*' runs everything. Do not pass full VSTest filter expressions like 'Category=Unit'.")]
         string filter,
+        [Description("Working directory for the dotnet test invocation. Defaults to the test project's directory when omitted.")]
         string? workingDir = null,
+        [Description("When true, omits --no-restore. Set after scaffolding a new test project or adding NuGet references; otherwise leave false for faster runs.")]
         bool forceRestore = false,
+        [Description("Optional opaque token (any string) used to isolate output artifacts (TestResults-{hash}/, coveragereport-{hash}/) so concurrent agents don't trample each other. Omit for single-agent use.")]
         string? sessionId = null,
+        [Description("Optional class-name pattern forwarded to coverlet's Include filter (e.g. 'OrderService' or 'Order*'). Always honored when set, independent of `filter`. Namespace-qualified names are not supported.")]
         string? includeClass = null,
         CancellationToken cancellationToken = default)
     {
@@ -116,7 +122,9 @@ public class CoverageTools
 
     [McpServerTool]
     [Description("Parse Summary.json into class/method coverage data, sorted by branch coverage ascending.")]
-    public string GetCoverageSummary(string summaryJsonPath)
+    public string GetCoverageSummary(
+        [Description("Absolute path to the Summary.json produced by reportgenerator (returned by RunTestsWithCoverage).")]
+        string summaryJsonPath)
     {
         try { _pathGuard.Validate(summaryJsonPath, nameof(summaryJsonPath)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
@@ -143,7 +151,13 @@ public class CoverageTools
 
     [McpServerTool]
     [Description("List uncovered branches for methods matching `methodName` in Cobertura XML (partial match supported).")]
-    public string GetUncoveredBranches(string coberturaXmlPath, string methodName, string? sessionId = null)
+    public string GetUncoveredBranches(
+        [Description("Absolute path to coverage.cobertura.xml. Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when the file is not found at this path.")]
+        string coberturaXmlPath,
+        [Description("Method name to inspect. Partial matches are returned; pass the simple name (no parameters or return type).")]
+        string methodName,
+        [Description("Optional session token used to resolve the session-scoped .coverage-state-{hash} fallback. Omit for single-agent use.")]
+        string? sessionId = null)
     {
         try { _pathGuard.Validate(coberturaXmlPath, nameof(coberturaXmlPath)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
@@ -171,7 +185,13 @@ public class CoverageTools
 
     [McpServerTool]
     [Description("Insert C# code into a test file via Roslyn AST (string fallback). Pass `insertAfterAnchor` to target a position; omit to append inside the last class.")]
-    public async Task<string> AppendTestCode(string testFilePath, string codeToAppend, string? insertAfterAnchor = null)
+    public async Task<string> AppendTestCode(
+        [Description("Absolute path to the target .cs test file. Must already exist; the file is rewritten atomically.")]
+        string testFilePath,
+        [Description("C# code fragment to insert. Pass member declarations (test methods/fields) — do not include `namespace` or `using` lines unless intentionally adding them at the appropriate scope.")]
+        string codeToAppend,
+        [Description("If set, code is inserted after the last occurrence of this exact string (whitespace-tolerant fallback). When omitted, code is appended before the closing brace of the last class in the file.")]
+        string? insertAfterAnchor = null)
     {
         try { _pathGuard.Validate(testFilePath, nameof(testFilePath)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
@@ -202,7 +222,13 @@ public class CoverageTools
 
     [McpServerTool]
     [Description("Diff current coverage against the saved baseline (method-level changes, including added/removed). Updates the baseline afterwards.")]
-    public string GetCoverageDiff(string coberturaXmlPath, string? workingDir = null, string? sessionId = null)
+    public string GetCoverageDiff(
+        [Description("Absolute path to the current coverage.cobertura.xml. Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when the file is not found at this path.")]
+        string coberturaXmlPath,
+        [Description("Project root used to store the baseline (.mcp-coverage/.coverage-prev.xml). Defaults to a parent directory of the coverage XML, walking past TestResults/coveragereport/guid folders.")]
+        string? workingDir = null,
+        [Description("Optional session token. When set, the baseline is stored as .coverage-prev-{hash}.xml so concurrent agents keep separate baselines.")]
+        string? sessionId = null)
     {
         try
         {
@@ -253,7 +279,15 @@ public class CoverageTools
 
     [McpServerTool]
     [Description("Per-file class/method coverage from Cobertura XML. `allMeetTarget` is true when every class meets `targetRate` for line and branch.")]
-    public string GetFileCoverage(string coberturaXmlPath, string sourceFileName, string? sessionId = null, double targetRate = 0.8)
+    public string GetFileCoverage(
+        [Description("Absolute path to coverage.cobertura.xml. Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when the file is not found at this path.")]
+        string coberturaXmlPath,
+        [Description("Source file name to look up (e.g. 'ExampleService.cs'). File-name match against the <class filename=\"...\"> entries in the Cobertura XML.")]
+        string sourceFileName,
+        [Description("Optional session token used to resolve the session-scoped .coverage-state-{hash} fallback. Omit for single-agent use.")]
+        string? sessionId = null,
+        [Description("Coverage threshold as a fraction in [0.0, 1.0] (e.g. 0.8 = 80%). Pass 0.8 — not 80. Default 0.8. Out-of-range values are rejected.")]
+        double targetRate = 0.8)
     {
         try { _pathGuard.Validate(coberturaXmlPath, nameof(coberturaXmlPath)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
@@ -284,7 +318,11 @@ public class CoverageTools
 
     [McpServerTool]
     [Description("Discover .cs files from a file/folder/.csproj/comma-separated list and group into batches sized by `lineBudget`.")]
-    public string GetSourceFiles(string path, int lineBudget = 300)
+    public string GetSourceFiles(
+        [Description("A single .cs file, a directory to scan recursively, a .csproj file, or a comma/semicolon-separated list of .cs file paths. Build/obj output is excluded automatically.")]
+        string path,
+        [Description("Soft maximum total source-lines per batch. Files larger than the budget get their own batch. Must be >= 1. Default 300.")]
+        int lineBudget = 300)
     {
         if (lineBudget < 1)
             return JsonHelper.Error("invalidParameter", "lineBudget must be at least 1.");
@@ -412,7 +450,13 @@ public class CoverageTools
 
     [McpServerTool]
     [Description("Remove session state files and TestResults/coveragereport directories. Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes`.")]
-    public string CleanupSession(string workingDir, string? sessionId = null, int maxAgeMinutes = 120)
+    public string CleanupSession(
+        [Description("Project working directory containing .mcp-coverage/, TestResults*, and coveragereport* artifacts to clean. Must be inside COVERAGE_MCP_ALLOWED_ROOT when that environment variable is set.")]
+        string workingDir,
+        [Description("When set, removes only state files and directories whose name suffix matches this session's hash. Omit to do an age-based sweep instead.")]
+        string? sessionId = null,
+        [Description("When `sessionId` is omitted, removes artifacts older than this many minutes. Ignored when `sessionId` is set. Default 120.")]
+        int maxAgeMinutes = 120)
     {
         try { _pathGuard.Validate(workingDir, nameof(workingDir)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
