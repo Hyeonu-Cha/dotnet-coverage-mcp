@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Parameter-level `[Description]` attributes on every tool in `CoverageTools`.
+  AI clients now see per-argument guidance (expected format, validation rules,
+  common conventions) in the MCP `tools/list` schema, instead of having to
+  infer it from the method-level description or parameter names.
+
 ## [0.1.1] - 2026-05-05
 
 ### Added
