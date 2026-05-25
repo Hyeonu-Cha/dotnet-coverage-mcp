@@ -109,14 +109,25 @@ The server will start and wait for MCP messages over stdin/stdout.
 
 ## MCP Client Configuration
 
-If you installed via `dotnet tool`, point your MCP client at the global command:
+After installing the global tool (`dotnet tool install --global dotnet-coverage-mcp`),
+register the server with your MCP client. Set `COVERAGE_MCP_ALLOWED_ROOT` to the
+repository you want the server to operate on.
+
+### Claude Code
+
+```bash
+claude mcp add coverage --env COVERAGE_MCP_ALLOWED_ROOT=/path/to/your/repo -- dotnet-coverage-mcp
+```
+
+### Claude Desktop
+
+Add to `claude_desktop_config.json` (Settings → Developer → Edit Config):
 
 ```json
 {
   "mcpServers": {
     "coverage": {
       "command": "dotnet-coverage-mcp",
-      "transport": "stdio",
       "env": {
         "COVERAGE_MCP_ALLOWED_ROOT": "/path/to/your/repo"
       }
@@ -125,7 +136,44 @@ If you installed via `dotnet tool`, point your MCP client at the global command:
 }
 ```
 
-To run from source instead, use `dotnet run`:
+### Cursor
+
+Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (per-project):
+
+```json
+{
+  "mcpServers": {
+    "coverage": {
+      "command": "dotnet-coverage-mcp",
+      "env": {
+        "COVERAGE_MCP_ALLOWED_ROOT": "/path/to/your/repo"
+      }
+    }
+  }
+}
+```
+
+### VS Code (GitHub Copilot)
+
+Add to `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "coverage": {
+      "type": "stdio",
+      "command": "dotnet-coverage-mcp",
+      "env": {
+        "COVERAGE_MCP_ALLOWED_ROOT": "/path/to/your/repo"
+      }
+    }
+  }
+}
+```
+
+### Run from source
+
+To run from source instead of the global tool, use `dotnet run`:
 
 ```json
 {
