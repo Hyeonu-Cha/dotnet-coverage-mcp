@@ -69,10 +69,7 @@ Without `sessionId`, tools use shared defaults — safe for single-agent use.
 ## Requirements
 
 - **.NET 9.0 SDK (or later)** — [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
-- **reportgenerator** global tool — install once:
-  ```bash
-  dotnet tool install --global dotnet-reportgenerator-globaltool
-  ```
+- **reportgenerator** global tool — the server shells out to it to render coverage reports (installed in the [Install](#install) step below)
 - An MCP-compatible client (Claude Code, Gemini CLI, etc.)
 - **`COVERAGE_MCP_ALLOWED_ROOT`** — recommended. Set to your repository root to restrict every tool's filesystem access to that subtree. Any path passed by the client outside this root is rejected with `pathNotAllowed`. When unset, the server logs a warning once and accepts any path (backward-compatible, but not recommended for shared environments).
 
@@ -82,10 +79,16 @@ Without `sessionId`, tools use shared defaults — safe for single-agent use.
 
 ## Install
 
-The recommended way to install is as a global .NET tool from NuGet:
+Install the server as a global .NET tool from NuGet:
 
 ```bash
 dotnet tool install --global dotnet-coverage-mcp
+```
+
+The server depends on the **reportgenerator** global tool to render coverage reports — install it too:
+
+```bash
+dotnet tool install --global dotnet-reportgenerator-globaltool
 ```
 
 After install, the `dotnet-coverage-mcp` command is on your PATH.
