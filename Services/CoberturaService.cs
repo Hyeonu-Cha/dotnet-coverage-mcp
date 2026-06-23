@@ -9,13 +9,16 @@ namespace DotNetCoverageMcp.Services;
 
 public interface ICoberturaService
 {
-    List<object> ParseSummary(string summaryJsonPath);
+    List<SummaryClass> ParseSummary(string summaryJsonPath);
     FileCoverageResult GetFileCoverage(string coberturaXmlPath, string sourceFileName, double targetRate);
     UncoveredBranchesResult GetUncoveredBranches(string coberturaXmlPath, string methodName);
     DiffResult ComputeDiff(string currentXmlPath, string baselinePath);
 }
 
 // --- Result types ---
+
+public record SummaryClass(string Class, double LineCoverage, double BranchCoverage, List<SummaryMethod> Methods);
+public record SummaryMethod(string Name, double Line, double Branch);
 
 public record FileCoverageResult(string SourceFile, bool AllMeetTarget, List<FileCoverageClass> Classes);
 public record FileCoverageClass(string Class, double LineRate, double BranchRate, bool MeetsTarget, List<FileCoverageMethod> Methods);
@@ -47,14 +50,14 @@ public class CoberturaService : ICoberturaService
         _logger = logger;
     }
 
-    public List<object> ParseSummary(string summaryJsonPath)
+    public List<SummaryClass> ParseSummary(string summaryJsonPath)
     {
         var json = File.ReadAllText(summaryJsonPath);
         var root = JsonNode.Parse(json);
         var assemblies = root?["coverage"]?["assemblies"]?.AsArray()
             ?? throw new InvalidOperationException("Unexpected Summary.json structure — could not find coverage.assemblies.");
 
-        var result = new List<object>();
+        var result = new List<SummaryClass>();
 
         foreach (var assembly in assemblies)
         {
@@ -64,7 +67,7 @@ public class CoberturaService : ICoberturaService
             foreach (var cls in classes)
             {
                 var methods = cls?["methods"]?.AsArray();
-                var methodList = new List<(string name, double line, double branch)>();
+                var methodList = new List<SummaryMethod>();
 
                 if (methods != null)
                 {
@@ -72,24 +75,22 @@ public class CoberturaService : ICoberturaService
                     {
                         var linePct = method?["linecoverage"]?.GetValue<double>() ?? 0;
                         var branchPct = method?["branchcoverage"]?.GetValue<double>() ?? 0;
-                        methodList.Add((
-                            name: method?["name"]?.GetValue<string>() ?? "",
-                            line: Math.Round(linePct / 100.0, 4),
-                            branch: Math.Round(branchPct / 100.0, 4)));
+                        methodList.Add(new SummaryMethod(
+                            method?["name"]?.GetValue<string>() ?? "",
+                            Math.Round(linePct / 100.0, 4),
+                            Math.Round(branchPct / 100.0, 4)));
                     }
-                    methodList = methodList.OrderBy(m => m.branch).ToList();
+                    methodList = methodList.OrderBy(m => m.Branch).ToList();
                 }
 
                 var classLinePct = cls?["linecoverage"]?.GetValue<double>() ?? 0;
                 var classBranchPct = cls?["branchcoverage"]?.GetValue<double>() ?? 0;
 
-                result.Add(new
-                {
-                    @class = cls?["name"]?.GetValue<string>() ?? "",
-                    lineCoverage = Math.Round(classLinePct / 100.0, 4),
-                    branchCoverage = Math.Round(classBranchPct / 100.0, 4),
-                    methods = methodList.Select(m => new { m.name, m.line, m.branch })
-                });
+                result.Add(new SummaryClass(
+                    cls?["name"]?.GetValue<string>() ?? "",
+                    Math.Round(classLinePct / 100.0, 4),
+                    Math.Round(classBranchPct / 100.0, 4),
+                    methodList));
             }
         }
 

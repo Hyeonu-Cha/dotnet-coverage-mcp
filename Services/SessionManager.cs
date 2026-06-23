@@ -187,8 +187,12 @@ public class SessionManager : ISessionManager
                 foreach (var dir in Directory.GetDirectories(workingDir))
                 {
                     var dirName = Path.GetFileName(dir);
-                    if ((dirName.StartsWith("TestResults-") || dirName.StartsWith("coveragereport-"))
-                        && Directory.GetLastWriteTimeUtc(dir) < cutoff)
+                    // Match both session-suffixed (TestResults-<key>) and unsuffixed
+                    // (TestResults) artifact dirs — the latter are created for single-agent
+                    // runs and must be swept by age too, mirroring the sessionId path.
+                    var isArtifactDir = dirName.StartsWith("TestResults", StringComparison.Ordinal)
+                        || dirName.StartsWith("coveragereport", StringComparison.Ordinal);
+                    if (isArtifactDir && Directory.GetLastWriteTimeUtc(dir) < cutoff)
                     {
                         _fileService.SafeDelete(dir);
                         removed++;
