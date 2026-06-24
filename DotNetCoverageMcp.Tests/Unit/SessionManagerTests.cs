@@ -250,10 +250,14 @@ public class SessionManagerTests : IDisposable
         var staleResults = Path.Combine(_tempDir, "TestResults");
         var staleReport = Path.Combine(_tempDir, "coveragereport");
         var freshResults = Path.Combine(_tempDir, "TestResults-fresh");
-        foreach (var d in new[] { staleResults, staleReport, freshResults })
+        // A user dir that merely shares the prefix must NOT be swept, even when stale —
+        // the match is exact-name or hyphen-suffix only, never a bare prefix.
+        var userBackup = Path.Combine(_tempDir, "TestResultsBackup");
+        foreach (var d in new[] { staleResults, staleReport, freshResults, userBackup })
             Directory.CreateDirectory(d);
         Directory.SetLastWriteTimeUtc(staleResults, DateTime.UtcNow.AddMinutes(-200));
         Directory.SetLastWriteTimeUtc(staleReport, DateTime.UtcNow.AddMinutes(-200));
+        Directory.SetLastWriteTimeUtc(userBackup, DateTime.UtcNow.AddMinutes(-200));
         // freshResults keeps its just-created timestamp.
 
         _sut.Cleanup(_tempDir, null, 120);
@@ -261,6 +265,7 @@ public class SessionManagerTests : IDisposable
         _fileService.Verify(f => f.SafeDelete(staleResults), Times.Once);
         _fileService.Verify(f => f.SafeDelete(staleReport), Times.Once);
         _fileService.Verify(f => f.SafeDelete(freshResults), Times.Never);
+        _fileService.Verify(f => f.SafeDelete(userBackup), Times.Never);
     }
 
     [Fact]
