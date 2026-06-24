@@ -3,6 +3,7 @@
 <!-- mcp-name: io.github.Hyeonu-Cha/dotnet-coverage-mcp -->
 
 [![build](https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/actions/workflows/dotnet.yml/badge.svg)](https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/actions/workflows/dotnet.yml)
+[![tests](https://img.shields.io/github/actions/workflow/status/Hyeonu-Cha/dotnet-coverage-mcp/dotnet.yml?branch=main&label=tests)](https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/actions/workflows/dotnet.yml)
 [![NuGet](https://img.shields.io/nuget/v/dotnet-coverage-mcp.svg)](https://www.nuget.org/packages/dotnet-coverage-mcp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
