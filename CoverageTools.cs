@@ -4,6 +4,8 @@ using ModelContextProtocol.Server;
 using DotNetCoverageMcp.Helpers;
 using DotNetCoverageMcp.Services;
 
+namespace DotNetCoverageMcp;
+
 [McpServerToolType]
 public class CoverageTools
 {
@@ -54,6 +56,8 @@ public class CoverageTools
         string? sessionId = null,
         [Description("Optional class-name pattern forwarded to coverlet's Include filter (e.g. 'OrderService' or 'Order*'). Always honored when set, independent of `filter`. Namespace-qualified names are not supported.")]
         string? includeClass = null,
+        [Description("When true, skips the reportgenerator JSON summary step and returns only the Cobertura XML path. Faster for the inner test loop, where per-file tools (GetFileCoverage/GetUncoveredBranches/GetCoverageDiff) read the XML directly. Leave false when you need GetCoverageSummary's Summary.json.")]
+        bool skipReport = false,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(testProjectPath))
@@ -82,19 +86,23 @@ public class CoverageTools
         var testResult = await _processRunner.RunDotnetTestAsync(
             testProjectPath, filter, resultsDir, workingDir, forceRestore, includeClass, cancellationToken);
 
-        if (testResult.Error == "cancelled")
-            return JsonHelper.Error("cancelled", "Test run was cancelled by the client.");
-
-        if (testResult.Error == "timeout")
-            return JsonHelper.Error("timeout", $"Test run timed out. Output: {testResult.Output}");
-
-        if (!testResult.Success)
-            return JsonHelper.Error("buildError", $"Test run failed (code {testResult.ExitCode}). Error: {testResult.Error}\nOutput: {testResult.Output}");
+        switch (testResult.Outcome)
+        {
+            case TestRunOutcome.Cancelled:
+                return JsonHelper.Error("cancelled", "Test run was cancelled by the client.");
+            case TestRunOutcome.Timeout:
+                return JsonHelper.Error("timeout", $"Test run timed out. Output: {testResult.Output}");
+            case TestRunOutcome.BuildError:
+                return JsonHelper.Error("buildError", $"Test run failed (code {testResult.ExitCode}). Error: {testResult.Error}\nOutput: {testResult.Output}");
+        }
 
         if (testResult.CoverageXmlPath == null)
             return JsonHelper.Error("noCoverage", "No coverage XML found.\n" + testResult.Output);
 
         _sessionManager.SaveCoverageState(workingDir, testResult.CoverageXmlPath, filter, sessionId);
+
+        if (skipReport)
+            return $"Tests completed (report skipped).\nCobertura XML at: {testResult.CoverageXmlPath}\nOutput: {testResult.Output}";
 
         ReportResult reportResult;
         try

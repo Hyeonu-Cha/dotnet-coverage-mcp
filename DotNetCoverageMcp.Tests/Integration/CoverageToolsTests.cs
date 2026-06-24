@@ -52,7 +52,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(false, "", "cancelled", -1, null));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Cancelled, "", "", -1, null));
 
         var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
         AssertError(result, "cancelled");
@@ -64,7 +64,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(false, "output", "error", 1, null));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.BuildError, "output", "error", 1, null));
 
         var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
         AssertError(result, "buildError");
@@ -76,7 +76,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(true, "output", "", 0, null));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "output", "", 0, null));
 
         var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
         AssertError(result, "noCoverage");
@@ -88,7 +88,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(true, "test output", "", 0, "/coverage.xml"));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "test output", "", 0, "/coverage.xml"));
 
         _processRunner.Setup(p => p.RunReportGeneratorAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -107,7 +107,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(true, "", "", 0, "/coverage.xml"));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "", "", 0, "/coverage.xml"));
 
         _processRunner.Setup(p => p.RunReportGeneratorAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -125,7 +125,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(false, "", "cancelled", -1, null));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Cancelled, "", "", -1, null));
 
         await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
 
@@ -139,7 +139,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(true, "", "", 0, "/coverage.xml"));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "", "", 0, "/coverage.xml"));
 
         _processRunner.Setup(p => p.RunReportGeneratorAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -150,6 +150,23 @@ public class CoverageToolsTests
         AssertError(result, "reportFailed");
         result.Should().Contain("reportgenerator");
         result.Should().Contain("coverage.xml");
+    }
+
+    [Fact]
+    public async Task RunTestsWithCoverage_SkipReport_ReturnsXmlAndDoesNotRunReportGenerator()
+    {
+        _processRunner.Setup(p => p.RunDotnetTestAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "test output", "", 0, "/coverage.xml"));
+
+        var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir", skipReport: true);
+
+        result.Should().Contain("coverage.xml");
+        result.Should().Contain("report skipped");
+        _sessionManager.Verify(s => s.SaveCoverageState("/dir", "/coverage.xml", "Ns.Class", null), Times.Once);
+        _processRunner.Verify(p => p.RunReportGeneratorAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // --- GetCoverageSummary ---

@@ -12,6 +12,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   AI clients now see per-argument guidance (expected format, validation rules,
   common conventions) in the MCP `tools/list` schema, instead of having to
   infer it from the method-level description or parameter names.
+- `skipReport` parameter on `RunTestsWithCoverage` (default `false`). When set,
+  the reportgenerator JSON-summary step is skipped and only the Cobertura XML
+  path is returned — a meaningful speedup for the inner test loop, where the
+  per-file tools (`GetFileCoverage`/`GetUncoveredBranches`/`GetCoverageDiff`)
+  read the XML directly and never touch `Summary.json`.
+- `COVERAGE_MCP_REPORTGEN_TIMEOUT_MS` environment override for the
+  reportgenerator timeout (default 60s), mirroring the existing
+  `COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS` override.
+
+### Fixed
+- `reportgenerator` stdout/stderr read tasks are now drained on cancel/timeout
+  before the process is disposed, preventing an `UnobservedTaskException` once
+  the killed process's pipes close. This matches the existing `dotnet test`
+  drain path.
+- Age-based `CleanupSession` (no `sessionId`) now also sweeps the unsuffixed
+  `TestResults`/`coveragereport` directories created by single-agent runs,
+  matching the `sessionId`-scoped cleanup which already removed them.
+
+### Changed
+- `RunDotnetTestAsync` now reports its result via a `TestRunOutcome` enum
+  (`Success`/`BuildError`/`Cancelled`/`Timeout`) instead of overloading the
+  `Error` string with `"cancelled"`/`"timeout"` sentinels, so consumers branch
+  on a stable, refactor-safe signal.
+- `ParseSummary` returns typed `SummaryClass`/`SummaryMethod` records instead of
+  a `List<object>` of anonymous types, matching the other coverage result types.
+  Serialized JSON output is unchanged.
+- `CoverageTools` moved into the `DotNetCoverageMcp` namespace (it previously sat
+  in the global namespace, inconsistent with every other type).
 
 ## [0.1.1] - 2026-05-05
 
