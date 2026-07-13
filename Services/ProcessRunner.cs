@@ -71,16 +71,17 @@ public class ProcessRunner : IProcessRunner
         // earlier version emitted /p:Include, which the collector silently ignored), so we
         // materialize a temporary runsettings file and pass it with --settings.
         string? runSettingsPath = null;
-        if (!string.IsNullOrWhiteSpace(includeClass))
-        {
-            runSettingsPath = WriteIncludeRunSettings(includeClass);
-            psi.ArgumentList.Add("--settings");
-            psi.ArgumentList.Add(runSettingsPath);
-        }
-
-        _logger.LogInformation("Starting dotnet test for {Project} with filter {Filter}", testProjectPath, filter);
         try
         {
+            if (!string.IsNullOrWhiteSpace(includeClass))
+            {
+                runSettingsPath = WriteIncludeRunSettings(includeClass);
+                psi.ArgumentList.Add("--settings");
+                psi.ArgumentList.Add(runSettingsPath);
+            }
+
+            _logger.LogInformation("Starting dotnet test for {Project} with filter {Filter}", testProjectPath, filter);
+
             using var process = Process.Start(psi) ?? throw new Exception("Failed to start dotnet test");
 
             // Combine caller's token with an outer test timeout. Without this, a hung restore
