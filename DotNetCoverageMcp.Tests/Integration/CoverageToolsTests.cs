@@ -291,8 +291,9 @@ public class CoverageToolsTests
     [Fact]
     public void GetCoverageDiff_DefaultWorkingDir_ResolvesToProjectRoot_NotTestResultsSubdir()
     {
-        // Simulate resolvedPath inside TestResults-xxx/guid/ structure
-        // The baseline should NOT be stored inside TestResults (it gets wiped)
+        // Simulate resolvedPath inside TestResults-xxx/guid/ structure.
+        // The baseline must NOT be stored inside TestResults (it gets wiped on the next
+        // run) — GetCoverageDiff should walk up past TestResults/guid to the project root.
         var resolvedPath = Path.Combine(Path.GetTempPath(), "TestResults-abc", Guid.NewGuid().ToString(), "coverage.cobertura.xml");
         var expectedRoot = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
 
@@ -300,13 +301,16 @@ public class CoverageToolsTests
             .Returns(resolvedPath);
         _sessionManager.Setup(s => s.ComputeSuffix(It.IsAny<string?>())).Returns("");
 
-        // GetCoverageDiff will try File.ReadAllText on resolvedPath and fail,
-        // but we can verify it creates .mcp-coverage in the right place
-        var result = _sut.GetCoverageDiff("x.xml");
+        // First run (no baseline yet): the baseline is copied to the resolved project
+        // root's .mcp-coverage, never inside the TestResults subdirectory.
+        _sut.GetCoverageDiff("x.xml");
 
-        // It should fail (file doesn't exist), but the error should NOT reference TestResults
-        // as the working directory — it should have walked up to temp root
-        AssertError(result, "parseFailed");
+        _fileService.Verify(f => f.AtomicCopyFile(
+            resolvedPath,
+            It.Is<string>(dst =>
+                dst.StartsWith(Path.Combine(expectedRoot, ".mcp-coverage"), StringComparison.OrdinalIgnoreCase)
+                && !dst.Contains("TestResults", StringComparison.OrdinalIgnoreCase))),
+            Times.Once);
     }
 
     // --- Helpers ---

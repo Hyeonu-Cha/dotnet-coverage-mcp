@@ -55,6 +55,57 @@ public class FileServiceTests : IDisposable
         Directory.GetFiles(_tempDir, ".tmp-*").Should().BeEmpty();
     }
 
+    // --- AtomicCopyFile ---
+
+    [Fact]
+    public void AtomicCopyFile_CopiesContentCorrectly()
+    {
+        var src = Path.Combine(_tempDir, "src.xml");
+        var dst = Path.Combine(_tempDir, "dst.xml");
+        File.WriteAllText(src, "<coverage/>");
+
+        _sut.AtomicCopyFile(src, dst);
+
+        File.ReadAllText(dst).Should().Be("<coverage/>");
+    }
+
+    [Fact]
+    public void AtomicCopyFile_OverwritesExistingTarget()
+    {
+        var src = Path.Combine(_tempDir, "src.xml");
+        var dst = Path.Combine(_tempDir, "dst.xml");
+        File.WriteAllText(src, "new");
+        File.WriteAllText(dst, "old");
+
+        _sut.AtomicCopyFile(src, dst);
+
+        File.ReadAllText(dst).Should().Be("new");
+    }
+
+    [Fact]
+    public void AtomicCopyFile_NoTempFileLeftBehind()
+    {
+        var src = Path.Combine(_tempDir, "src.xml");
+        var dst = Path.Combine(_tempDir, "dst.xml");
+        File.WriteAllText(src, "content");
+
+        _sut.AtomicCopyFile(src, dst);
+
+        Directory.GetFiles(_tempDir, ".tmp-*").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AtomicCopyFile_MissingSource_Throws()
+    {
+        var src = Path.Combine(_tempDir, "does-not-exist.xml");
+        var dst = Path.Combine(_tempDir, "dst.xml");
+
+        Action act = () => _sut.AtomicCopyFile(src, dst);
+
+        act.Should().Throw<FileNotFoundException>();
+        Directory.GetFiles(_tempDir, ".tmp-*").Should().BeEmpty();
+    }
+
     // --- SafeDelete ---
 
     [Fact]
