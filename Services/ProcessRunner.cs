@@ -25,6 +25,10 @@ public class ProcessRunner : IProcessRunner
     private readonly ILogger<ProcessRunner> _logger;
     private static readonly int ReportGeneratorTimeoutMs = ReadTimeoutMs("COVERAGE_MCP_REPORTGEN_TIMEOUT_MS", 60_000);
     private static readonly int DotnetTestTimeoutMs = ReadTimeoutMs("COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS", 600_000);
+    // Per-test hang timeout passed to `dotnet test --blame-hang-timeout`. A single test
+    // exceeding this aborts the whole run and writes a hang dump, so make it configurable:
+    // raise it for legitimately long integration tests. Kept at 30s by default.
+    private static readonly int HangTimeoutSeconds = ReadTimeoutMs("COVERAGE_MCP_HANG_TIMEOUT_SECONDS", 30);
     // Bounded wait for stdout/stderr to drain after the child process has been killed.
     // Long enough for the OS to flush the pipe buffer, short enough not to extend a timeout.
     private static readonly TimeSpan PostKillDrainWait = TimeSpan.FromSeconds(1);
@@ -54,7 +58,7 @@ public class ProcessRunner : IProcessRunner
         psi.ArgumentList.Add(testProjectPath);
         if (!forceRestore) psi.ArgumentList.Add("--no-restore");
         psi.ArgumentList.Add("--blame-hang-timeout");
-        psi.ArgumentList.Add("30s");
+        psi.ArgumentList.Add($"{HangTimeoutSeconds}s");
         psi.ArgumentList.Add("--filter");
         psi.ArgumentList.Add($"FullyQualifiedName{filterOp}{filter}");
         psi.ArgumentList.Add("--collect:XPlat Code Coverage");

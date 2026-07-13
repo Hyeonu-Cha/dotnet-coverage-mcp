@@ -7,6 +7,7 @@ namespace DotNetCoverageMcp.Services;
 public interface IFileService
 {
     void AtomicWriteFile(string targetPath, string content);
+    void AtomicCopyFile(string sourcePath, string targetPath);
     void SafeDelete(string directoryPath);
     Task WithFileLockAsync(string filePath, Func<Task> action);
     (int Lines, int MethodCount) GetFileMetadata(string filePath);
@@ -31,6 +32,26 @@ public class FileService : IFileService
         try
         {
             File.WriteAllText(tempPath, content);
+            File.Move(tempPath, targetPath, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(tempPath); } catch { }
+            throw;
+        }
+    }
+
+    // Like AtomicWriteFile but copies an existing file instead of materializing its
+    // contents in memory first. Used for large coverage-XML baselines, where reading
+    // the whole file into a string just to write it straight back wastes a Large Object
+    // Heap allocation. File.Copy streams at the OS level; the temp + Move keeps it atomic.
+    public void AtomicCopyFile(string sourcePath, string targetPath)
+    {
+        var dir = Path.GetDirectoryName(targetPath) ?? Directory.GetCurrentDirectory();
+        var tempPath = Path.Combine(dir, $".tmp-{Guid.NewGuid():N}");
+        try
+        {
+            File.Copy(sourcePath, tempPath, overwrite: true);
             File.Move(tempPath, targetPath, overwrite: true);
         }
         catch

@@ -269,12 +269,12 @@ public class CoverageTools
         {
             if (!File.Exists(prevPath))
             {
-                _fileService.AtomicWriteFile(prevPath, File.ReadAllText(resolvedPath));
+                _fileService.AtomicCopyFile(resolvedPath, prevPath);
                 return JsonHelper.Serialize(new { firstRun = true });
             }
 
             var result = _coberturaService.ComputeDiff(resolvedPath, prevPath);
-            _fileService.AtomicWriteFile(prevPath, File.ReadAllText(resolvedPath));
+            _fileService.AtomicCopyFile(resolvedPath, prevPath);
             return JsonHelper.Serialize(result);
         }
         catch (Exception ex)

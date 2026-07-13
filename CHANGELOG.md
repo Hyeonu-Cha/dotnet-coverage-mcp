@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `COVERAGE_MCP_REPORTGEN_TIMEOUT_MS` environment override for the
   reportgenerator timeout (default 60s), mirroring the existing
   `COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS` override.
+- `COVERAGE_MCP_HANG_TIMEOUT_SECONDS` environment override for the per-test
+  `dotnet test --blame-hang-timeout` (default 30s). Raise it when a project has
+  legitimately long-running integration tests that would otherwise trip the
+  hang dump and abort the entire run.
 
 ### Fixed
 - `reportgenerator` stdout/stderr read tasks are now drained on cancel/timeout
@@ -35,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`Success`/`BuildError`/`Cancelled`/`Timeout`) instead of overloading the
   `Error` string with `"cancelled"`/`"timeout"` sentinels, so consumers branch
   on a stable, refactor-safe signal.
+- `GetCoverageDiff` copies the coverage-XML baseline with a streaming
+  `File.Copy` (new `IFileService.AtomicCopyFile`) instead of reading the whole
+  file into a string and writing it back, avoiding a Large Object Heap
+  allocation per diff on large reports. Behaviour is unchanged.
 - `ParseSummary` returns typed `SummaryClass`/`SummaryMethod` records instead of
   a `List<object>` of anonymous types, matching the other coverage result types.
   Serialized JSON output is unchanged.
