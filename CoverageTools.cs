@@ -54,7 +54,7 @@ public class CoverageTools
         bool forceRestore = false,
         [Description("Optional opaque token (any string) used to isolate output artifacts (TestResults-{hash}/, coveragereport-{hash}/) so concurrent agents don't trample each other. Omit for single-agent use.")]
         string? sessionId = null,
-        [Description("Optional class-name pattern forwarded to coverlet's Include filter (e.g. 'OrderService' or 'Order*'). Always honored when set, independent of `filter`. Namespace-qualified names are not supported.")]
+        [Description("Optional class-name pattern that restricts coverage collection to types matching this name (coverlet Include filter, e.g. 'OrderService' or 'Order*'), applied via a generated runsettings file. Independent of `filter`; omit to collect coverage for everything the run touches. Namespace-qualified names are not supported.")]
         string? includeClass = null,
         [Description("When true, skips the reportgenerator JSON summary step and returns only the Cobertura XML path. Faster for the inner test loop, where per-file tools (GetFileCoverage/GetUncoveredBranches/GetCoverageDiff) read the XML directly. Leave false when you need GetCoverageSummary's Summary.json.")]
         bool skipReport = false,

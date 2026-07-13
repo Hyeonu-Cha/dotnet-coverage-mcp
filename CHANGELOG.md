@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hang dump and abort the entire run.
 
 ### Fixed
+- `includeClass` on `RunTestsWithCoverage` now actually scopes coverage. It was
+  emitted as an MSBuild `/p:Include` property, which `coverlet.collector` ignores
+  (it reads filters from runsettings); it is now written to a generated
+  runsettings file and passed with `--settings`, so coverage is restricted to the
+  matching types as documented.
 - `reportgenerator` stdout/stderr read tasks are now drained on cancel/timeout
   before the process is disposed, preventing an `UnobservedTaskException` once
   the killed process's pipes close. This matches the existing `dotnet test`

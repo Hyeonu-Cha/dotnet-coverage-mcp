@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using DotNetCoverageMcp.Services;
 using FluentAssertions;
 
@@ -62,5 +63,39 @@ public class ProcessRunnerTests
         var result = await ProcessRunner.DrainAsync(task, TimeSpan.FromSeconds(1));
 
         result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void WriteIncludeRunSettings_WritesCoverletIncludeFilter()
+    {
+        var path = ProcessRunner.WriteIncludeRunSettings("OrderService");
+        try
+        {
+            File.Exists(path).Should().BeTrue();
+            var doc = XDocument.Load(path);
+            doc.Descendants("Include").Single().Value.Should().Be("[*]*OrderService");
+            doc.Descendants("DataCollector").Single()
+                .Attribute("friendlyName")!.Value.Should().Be("XPlat Code Coverage");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void WriteIncludeRunSettings_EscapesXmlSpecialCharacters()
+    {
+        // The value is written as element text, so XML metacharacters must be escaped;
+        // loading the file without throwing proves it is well-formed.
+        var path = ProcessRunner.WriteIncludeRunSettings("Foo&<Bar>");
+        try
+        {
+            XDocument.Load(path).Descendants("Include").Single().Value.Should().Be("[*]*Foo&<Bar>");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

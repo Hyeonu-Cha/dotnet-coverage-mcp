@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 
 namespace DotNetCoverageMcp.Services;
@@ -65,66 +66,103 @@ public class ProcessRunner : IProcessRunner
         psi.ArgumentList.Add("--results-directory");
         psi.ArgumentList.Add(resultsDir);
 
-        // Only scope coverage when caller explicitly opts in. Previously we inferred a
-        // class name from the filter, which silently mis-scoped namespace filters.
+        // Scope coverage to matching types when the caller opts in. coverlet.collector
+        // reads its Include filter from runsettings, not from an MSBuild /p: property (an
+        // earlier version emitted /p:Include, which the collector silently ignored), so we
+        // materialize a temporary runsettings file and pass it with --settings.
+        string? runSettingsPath = null;
         if (!string.IsNullOrWhiteSpace(includeClass))
-            psi.ArgumentList.Add($"/p:Include=[*]*{includeClass}");
+        {
+            runSettingsPath = WriteIncludeRunSettings(includeClass);
+            psi.ArgumentList.Add("--settings");
+            psi.ArgumentList.Add(runSettingsPath);
+        }
 
         _logger.LogInformation("Starting dotnet test for {Project} with filter {Filter}", testProjectPath, filter);
-        using var process = Process.Start(psi) ?? throw new Exception("Failed to start dotnet test");
-
-        // Combine caller's token with an outer test timeout. Without this, a hung restore
-        // or a locked NuGet cache would hang the MCP call until the client cancels.
-        using var timeoutCts = new CancellationTokenSource(DotnetTestTimeoutMs);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
-
-        // Register cancellation to kill the process immediately, before
-        // awaiting stdout/stderr — otherwise ReadToEndAsync blocks until
-        // the process exits and the cancellation token is never checked.
-        using var ctReg = linkedCts.Token.Register(() =>
-        {
-            _logger.LogWarning("Test run cancelled/timed out, killing process tree for {Project}", testProjectPath);
-            try { process.Kill(entireProcessTree: true); } catch { }
-        });
-
-        var outTask = process.StandardOutput.ReadToEndAsync();
-        var errTask = process.StandardError.ReadToEndAsync();
-        var exitTask = process.WaitForExitAsync(linkedCts.Token);
-
         try
         {
-            await exitTask;
+            using var process = Process.Start(psi) ?? throw new Exception("Failed to start dotnet test");
+
+            // Combine caller's token with an outer test timeout. Without this, a hung restore
+            // or a locked NuGet cache would hang the MCP call until the client cancels.
+            using var timeoutCts = new CancellationTokenSource(DotnetTestTimeoutMs);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+
+            // Register cancellation to kill the process immediately, before
+            // awaiting stdout/stderr — otherwise ReadToEndAsync blocks until
+            // the process exits and the cancellation token is never checked.
+            using var ctReg = linkedCts.Token.Register(() =>
+            {
+                _logger.LogWarning("Test run cancelled/timed out, killing process tree for {Project}", testProjectPath);
+                try { process.Kill(entireProcessTree: true); } catch { }
+            });
+
+            var outTask = process.StandardOutput.ReadToEndAsync();
+            var errTask = process.StandardError.ReadToEndAsync();
+            var exitTask = process.WaitForExitAsync(linkedCts.Token);
+
+            try
+            {
+                await exitTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Process already killed by ctReg callback — drain remaining output with a
+                // bounded wait so we surface useful stderr without hanging on a stuck pipe.
+                // The outcome is reported via TestRunOutcome; captured stderr is folded into
+                // Output for diagnostics.
+                var partialOut = await DrainAsync(outTask);
+                var partialErr = await DrainAsync(errTask);
+                var combined = string.IsNullOrEmpty(partialErr)
+                    ? partialOut
+                    : partialOut + "\n--- stderr ---\n" + partialErr;
+                var outcome = ct.IsCancellationRequested ? TestRunOutcome.Cancelled : TestRunOutcome.Timeout;
+                return new TestRunResult(outcome, combined, "", -1, null);
+            }
+
+            var output = await outTask;
+            var error = await errTask;
+
+            _logger.LogInformation("dotnet test exited with code {ExitCode} for {Project}", process.ExitCode, testProjectPath);
+
+            string? coverageXmlPath = null;
+            if (process.ExitCode == 0 && Directory.Exists(resultsDir))
+            {
+                var xmlPaths = Directory.GetFiles(resultsDir, "coverage.cobertura.xml", SearchOption.AllDirectories);
+                if (xmlPaths.Length > 0)
+                    coverageXmlPath = xmlPaths[0];
+            }
+
+            var runOutcome = process.ExitCode == 0 ? TestRunOutcome.Success : TestRunOutcome.BuildError;
+            return new TestRunResult(runOutcome, output, error, process.ExitCode, coverageXmlPath);
         }
-        catch (OperationCanceledException)
+        finally
         {
-            // Process already killed by ctReg callback — drain remaining output with a
-            // bounded wait so we surface useful stderr without hanging on a stuck pipe.
-            // The outcome is reported via TestRunOutcome; captured stderr is folded into
-            // Output for diagnostics.
-            var partialOut = await DrainAsync(outTask);
-            var partialErr = await DrainAsync(errTask);
-            var combined = string.IsNullOrEmpty(partialErr)
-                ? partialOut
-                : partialOut + "\n--- stderr ---\n" + partialErr;
-            var outcome = ct.IsCancellationRequested ? TestRunOutcome.Cancelled : TestRunOutcome.Timeout;
-            return new TestRunResult(outcome, combined, "", -1, null);
+            // Best-effort cleanup of the temporary runsettings; the run is finished here.
+            if (runSettingsPath != null)
+            {
+                try { File.Delete(runSettingsPath); } catch { }
+            }
         }
+    }
 
-        var output = await outTask;
-        var error = await errTask;
-
-        _logger.LogInformation("dotnet test exited with code {ExitCode} for {Project}", process.ExitCode, testProjectPath);
-
-        string? coverageXmlPath = null;
-        if (process.ExitCode == 0 && Directory.Exists(resultsDir))
-        {
-            var xmlPaths = Directory.GetFiles(resultsDir, "coverage.cobertura.xml", SearchOption.AllDirectories);
-            if (xmlPaths.Length > 0)
-                coverageXmlPath = xmlPaths[0];
-        }
-
-        var runOutcome = process.ExitCode == 0 ? TestRunOutcome.Success : TestRunOutcome.BuildError;
-        return new TestRunResult(runOutcome, output, error, process.ExitCode, coverageXmlPath);
+    // coverlet.collector reads its Include/Exclude filters from a runsettings file, not
+    // from MSBuild /p: properties. To scope coverage to a class we write a minimal
+    // runsettings file and pass it with --settings. Returns the temp path; the caller
+    // deletes it once the run completes.
+    internal static string WriteIncludeRunSettings(string includeClass)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coverage-mcp-{Guid.NewGuid():N}.runsettings");
+        new XDocument(
+            new XElement("RunSettings",
+                new XElement("DataCollectionRunSettings",
+                    new XElement("DataCollectors",
+                        new XElement("DataCollector",
+                            new XAttribute("friendlyName", "XPlat Code Coverage"),
+                            new XElement("Configuration",
+                                new XElement("Include", $"[*]*{includeClass}")))))))
+            .Save(path);
+        return path;
     }
 
     private static int ReadPositiveIntEnv(string envVar, int defaultValue)
