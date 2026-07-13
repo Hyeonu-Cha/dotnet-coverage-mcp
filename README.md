@@ -220,7 +220,7 @@ Or point directly at the compiled executable:
 | `workingDir` | string | No | Working directory; defaults to the project directory |
 | `forceRestore` | bool | No | When `true`, skips the `--no-restore` flag. Use after scaffolding a new test project or adding NuGet packages. |
 | `sessionId` | string | No | Isolates output directories (`TestResults-{hash}/`, `coveragereport-{hash}/`) and state files for concurrent multi-agent use. |
-| `includeClass` | string | No | Restrict coverage collection to types matching this name. Forwarded to coverlet as `/p:Include=[*]*{includeClass}`. Always honored when set, independent of `filter` — pass an explicit value to scope coverage; omit it to collect coverage for everything the run touches. |
+| `includeClass` | string | No | Restrict coverage collection to types matching this name (coverlet `Include` filter, applied via a generated runsettings file passed with `--settings`). Independent of `filter` — pass an explicit value to scope coverage; omit it to collect coverage for everything the run touches. Namespace-qualified names are not supported. |
 | `skipReport` | bool | No | When `true`, skips the `reportgenerator` JSON-summary step and returns only the Cobertura XML path. Faster for the inner test loop, where `GetFileCoverage`/`GetUncoveredBranches`/`GetCoverageDiff` read the XML directly. Leave `false` (default) when you need `GetCoverageSummary`'s `Summary.json`. |
 
 ### `GetCoverageSummary`
