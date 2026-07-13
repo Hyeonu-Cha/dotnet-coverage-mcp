@@ -178,6 +178,70 @@ public class CoverageToolsTests
         AssertError(result, "fileNotFound");
     }
 
+    [Fact]
+    public void GetCoverageSummary_BelowTarget_FiltersAndSortsWorstFirst()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}"); // must exist; content is unused since ParseSummary is mocked
+        try
+        {
+            _coberturaService.Setup(c => c.ParseSummary(path)).Returns(new List<SummaryClass>
+            {
+                new("HighCov", 0.95, 0.90, new List<SummaryMethod>()),
+                new("LowCov", 0.40, 0.30, new List<SummaryMethod>()),
+                new("MidCov", 0.85, 0.75, new List<SummaryMethod>()),
+            });
+
+            var result = _sut.GetCoverageSummary(path, belowTarget: 0.8);
+
+            using var doc = JsonDocument.Parse(result);
+            var classes = doc.RootElement.EnumerateArray()
+                .Select(e => e.GetProperty("class").GetString()).ToList();
+            // HighCov (0.95/0.90) is excluded; the rest are returned worst-branch-first.
+            classes.Should().Equal("LowCov", "MidCov");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCoverageSummary_TopNAndMethodsPerClass_Trim()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}");
+        try
+        {
+            _coberturaService.Setup(c => c.ParseSummary(path)).Returns(new List<SummaryClass>
+            {
+                new("A", 0.5, 0.5, new List<SummaryMethod> { new("m1", 0.1, 0.1), new("m2", 0.2, 0.2), new("m3", 0.3, 0.3) }),
+                new("B", 0.9, 0.9, new List<SummaryMethod>()),
+                new("C", 0.4, 0.4, new List<SummaryMethod>()),
+            });
+
+            var result = _sut.GetCoverageSummary(path, topN: 2, methodsPerClass: 1);
+
+            using var doc = JsonDocument.Parse(result);
+            var classes = doc.RootElement.EnumerateArray().ToList();
+            classes.Should().HaveCount(2);                                  // topN
+            classes[0].GetProperty("class").GetString().Should().Be("C");   // worst branch first
+            classes[1].GetProperty("class").GetString().Should().Be("A");
+            classes[1].GetProperty("methods").GetArrayLength().Should().Be(1); // methodsPerClass
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCoverageSummary_InvalidBelowTarget_ReturnsError()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}");
+        try
+        {
+            var result = _sut.GetCoverageSummary(path, belowTarget: 80);
+            AssertError(result, "invalidParameter");
+        }
+        finally { File.Delete(path); }
+    }
+
     // --- GetUncoveredBranches ---
 
     [Fact]

@@ -42,6 +42,8 @@ Returns JSON:
 }
 ```
 
+Methods that match `methodName` but have no uncovered branches are omitted — an empty result means the matched methods are fully covered — and the list is capped at 25 methods, so pass a more specific `methodName` if you hit the cap.
+
 ### Step 2: Interpret the uncovered branches
 For each uncovered branch, describe in plain language what condition is missing:
 - `branch-N-true` → the `if` condition was never `true`
@@ -54,7 +56,7 @@ If a previous coverage run exists, call `GetCoverageDiff` with `coberturaXmlPath
 Returns three sections:
 - `cycleImprovement` — overall delta in line and branch rates
 - `changedMethods` — methods with before/after coverage values
-- `unchanged` — methods with no change
+- `unchangedCount` — how many methods were unchanged (a count, not a list)
 
 ### Step 4: Report findings
 Present:

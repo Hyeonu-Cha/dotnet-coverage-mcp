@@ -210,6 +210,41 @@ public class CoberturaServiceTests : IDisposable
         act.Should().Throw<KeyNotFoundException>();
     }
 
+    [Fact]
+    public void GetUncoveredBranches_OmitsFullyCoveredMatches()
+    {
+        // Both methods match the partial name "Calc", but only CalcA has an uncovered branch.
+        // The fully-covered match must be dropped from Methods while MatchCount still counts both.
+        var path = WriteCoberturaXml(@"
+<coverage>
+  <packages><package><classes>
+    <class name=""Foo"">
+      <methods>
+        <method name=""CalcA"">
+          <lines>
+            <line number=""10"" branch=""True"">
+              <conditions><condition number=""1"" type=""jump"" coverage=""0%""/></conditions>
+            </line>
+          </lines>
+        </method>
+        <method name=""CalcB"">
+          <lines>
+            <line number=""20"" branch=""True"">
+              <conditions><condition number=""1"" type=""jump"" coverage=""100%""/></conditions>
+            </line>
+          </lines>
+        </method>
+      </methods>
+    </class>
+  </classes></package></packages>
+</coverage>");
+
+        var result = _sut.GetUncoveredBranches(path, "Calc");
+
+        result.MatchCount.Should().Be(2);
+        result.Methods.Should().ContainSingle().Which.Method.Should().Be("CalcA");
+    }
+
     // --- ComputeDiff ---
 
     [Fact]
@@ -243,6 +278,39 @@ public class CoberturaServiceTests : IDisposable
         result.ChangedMethods.Should().HaveCount(1);
         result.ChangedMethods![0].Name.Should().Be("Work");
         result.CycleImprovement!.LineDelta.Should().BeApproximately(0.4, 0.001);
+    }
+
+    [Fact]
+    public void ComputeDiff_CountsUnchangedMethods()
+    {
+        var current = WriteCoberturaXml(@"
+<coverage line-rate=""0.9"" branch-rate=""0.8"">
+  <packages><package><classes>
+    <class name=""Foo"">
+      <methods>
+        <method name=""Changed"" signature=""()"" line-rate=""0.9"" branch-rate=""0.8""/>
+        <method name=""Same"" signature=""()"" line-rate=""1.0"" branch-rate=""1.0""/>
+      </methods>
+    </class>
+  </classes></package></packages>
+</coverage>", "curUnchanged.xml");
+
+        var prev = WriteCoberturaXml(@"
+<coverage line-rate=""0.5"" branch-rate=""0.4"">
+  <packages><package><classes>
+    <class name=""Foo"">
+      <methods>
+        <method name=""Changed"" signature=""()"" line-rate=""0.5"" branch-rate=""0.4""/>
+        <method name=""Same"" signature=""()"" line-rate=""1.0"" branch-rate=""1.0""/>
+      </methods>
+    </class>
+  </classes></package></packages>
+</coverage>", "prevUnchanged.xml");
+
+        var result = _sut.ComputeDiff(current, prev);
+
+        result.ChangedMethods.Should().ContainSingle().Which.Name.Should().Be("Changed");
+        result.UnchangedCount.Should().Be(1);
     }
 
     [Fact]
