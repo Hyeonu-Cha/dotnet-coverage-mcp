@@ -242,6 +242,31 @@ public class CoverageToolsTests
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public void GetCoverageSummary_InvalidTopN_ReturnsError()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}");
+        try
+        {
+            AssertError(_sut.GetCoverageSummary(path, topN: 0), "invalidParameter");
+            AssertError(_sut.GetCoverageSummary(path, topN: -1), "invalidParameter");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCoverageSummary_InvalidMethodsPerClass_ReturnsError()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}");
+        try
+        {
+            AssertError(_sut.GetCoverageSummary(path, methodsPerClass: -1), "invalidParameter");
+        }
+        finally { File.Delete(path); }
+    }
+
     // --- GetUncoveredBranches ---
 
     [Fact]

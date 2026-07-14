@@ -148,6 +148,10 @@ public class CoverageTools
 
         if (belowTarget is < 0.0 or > 1.0)
             return JsonHelper.Error("invalidParameter", "belowTarget must be between 0.0 and 1.0.");
+        if (topN is <= 0)
+            return JsonHelper.Error("invalidParameter", "topN must be greater than 0.");
+        if (methodsPerClass is < 0)
+            return JsonHelper.Error("invalidParameter", "methodsPerClass must be non-negative.");
 
         try
         {
@@ -157,11 +161,11 @@ public class CoverageTools
 
             if (belowTarget is double target)
                 classes = classes.Where(c => c.LineCoverage < target || c.BranchCoverage < target);
-            if (topN is int n && n > 0)
+            if (topN is int n)
                 classes = classes.Take(n);
 
             var list = classes.ToList();
-            if (methodsPerClass is int mpc && mpc >= 0)
+            if (methodsPerClass is int mpc)
                 list = list.Select(c => c with { Methods = c.Methods.Take(mpc).ToList() }).ToList();
 
             return JsonHelper.Serialize(list);
