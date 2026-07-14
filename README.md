@@ -58,12 +58,14 @@ This minimises `dotnet test` invocations (the main bottleneck) while still track
 
 ## Concurrency
 
-Multiple AI agents can safely run in parallel against the same repository by passing a `sessionId` to each tool call:
+Multiple AI agents can run in parallel by passing a `sessionId` to each tool call, which isolates their coverage artifacts:
 
 - **Isolated output directories** — `RunTestsWithCoverage` creates `TestResults-{hash}/` and `coveragereport-{hash}/` per session, preventing one agent from deleting another's XML mid-parse
 - **Scoped state files** — Coverage state is written to `.mcp-coverage/.coverage-state-{hash}`, so `ResolveCoberturaPath` resolves to the correct XML for each session
 - **Scoped baselines** — `GetCoverageDiff` stores baselines as `.coverage-prev-{hash}.xml` per session
 - **Atomic writes** — All file writes (state files and test code) use write-to-temp-then-rename to prevent corruption from race conditions or process crashes
+
+> **Limitation — build outputs are not session-scoped.** `sessionId` isolates coverage *artifacts*, not the .NET *build*. `dotnet test` compiles the target project into its shared `obj/` and `bin/`, which are not per-session, so two agents running `RunTestsWithCoverage` against the **same** test project at the same time collide on those outputs and fail with `buildError` (e.g. `CS2012: the file is being used by another process`). Run parallel agents against **different** test projects, or on separate working copies of the repo. Multiple agents on one project are fine as long as their `dotnet test` builds don't overlap.
 
 Without `sessionId`, tools use shared defaults — safe for single-agent use.
 
