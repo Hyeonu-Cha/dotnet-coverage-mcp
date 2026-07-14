@@ -91,18 +91,18 @@ public class CoverageTools
             case TestRunOutcome.Cancelled:
                 return JsonHelper.Error("cancelled", "Test run was cancelled by the client.");
             case TestRunOutcome.Timeout:
-                return JsonHelper.Error("timeout", $"Test run timed out. Output: {testResult.Output}");
+                return JsonHelper.Error("timeout", $"Test run timed out. Output (tail): {Tail(testResult.Output)}");
             case TestRunOutcome.BuildError:
-                return JsonHelper.Error("buildError", $"Test run failed (code {testResult.ExitCode}). Error: {testResult.Error}\nOutput: {testResult.Output}");
+                return JsonHelper.Error("buildError", $"Test run failed (code {testResult.ExitCode}). Error: {testResult.Error}\nOutput (tail): {Tail(testResult.Output)}");
         }
 
         if (testResult.CoverageXmlPath == null)
-            return JsonHelper.Error("noCoverage", "No coverage XML found.\n" + testResult.Output);
+            return JsonHelper.Error("noCoverage", "No coverage XML found.\n" + Tail(testResult.Output));
 
         _sessionManager.SaveCoverageState(workingDir, testResult.CoverageXmlPath, filter, sessionId);
 
         if (skipReport)
-            return $"Tests completed (report skipped).\nCobertura XML at: {testResult.CoverageXmlPath}\nOutput: {testResult.Output}";
+            return $"Tests completed (report skipped).\nCobertura XML at: {testResult.CoverageXmlPath}";
 
         ReportResult reportResult;
         try
@@ -120,19 +120,25 @@ public class CoverageTools
         {
             return reportResult.ErrorDetail?.Contains("timed out") == true
                 ? JsonHelper.Error("timeout", $"{reportResult.ErrorDetail}. Cobertura XML is still available at: {testResult.CoverageXmlPath}")
-                : JsonHelper.Error("reportFailed", $"{reportResult.ErrorDetail}\n{testResult.Output}");
+                : JsonHelper.Error("reportFailed", $"{reportResult.ErrorDetail}\n{Tail(testResult.Output)}");
         }
 
-        return $"Tests completed.\nCoverage JSON at: {reportResult.SummaryPath}\nCobertura XML at: {testResult.CoverageXmlPath}\nOutput: {testResult.Output}";
+        return $"Tests completed.\nCoverage JSON at: {reportResult.SummaryPath}\nCobertura XML at: {testResult.CoverageXmlPath}";
     }
 
     // --- 2. GetCoverageSummary ---
 
     [McpServerTool]
-    [Description("Parse Summary.json into class/method coverage data, sorted by branch coverage ascending.")]
+    [Description("Parse Summary.json into class/method coverage data, sorted worst-first by branch coverage. Optional belowTarget/topN/methodsPerClass filters trim the response to the classes and methods that still need work.")]
     public string GetCoverageSummary(
         [Description("Absolute path to the Summary.json produced by reportgenerator (returned by RunTestsWithCoverage).")]
-        string summaryJsonPath)
+        string summaryJsonPath,
+        [Description("Optional. When set (a fraction in [0,1], e.g. 0.8), return only classes whose line OR branch coverage is below this threshold — the ones that still need work. Omit to return every class.")]
+        double? belowTarget = null,
+        [Description("Optional. Return only the N classes with the lowest branch coverage (results are sorted worst-first). Omit to return every class.")]
+        int? topN = null,
+        [Description("Optional. Keep at most this many lowest-branch-coverage methods per class, trimming the rest. Omit to keep every method.")]
+        int? methodsPerClass = null)
     {
         try { _pathGuard.Validate(summaryJsonPath, nameof(summaryJsonPath)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
@@ -140,10 +146,29 @@ public class CoverageTools
         if (!File.Exists(summaryJsonPath))
             return JsonHelper.Error("fileNotFound", $"Summary.json not found: {summaryJsonPath}");
 
+        if (belowTarget is < 0.0 or > 1.0)
+            return JsonHelper.Error("invalidParameter", "belowTarget must be between 0.0 and 1.0.");
+        if (topN is <= 0)
+            return JsonHelper.Error("invalidParameter", "topN must be greater than 0.");
+        if (methodsPerClass is < 0)
+            return JsonHelper.Error("invalidParameter", "methodsPerClass must be non-negative.");
+
         try
         {
-            var result = _coberturaService.ParseSummary(summaryJsonPath);
-            return JsonHelper.Serialize(result);
+            // Sort worst-first so topN yields the classes most in need of tests.
+            IEnumerable<SummaryClass> classes = _coberturaService.ParseSummary(summaryJsonPath)
+                .OrderBy(c => c.BranchCoverage).ThenBy(c => c.LineCoverage);
+
+            if (belowTarget is double target)
+                classes = classes.Where(c => c.LineCoverage < target || c.BranchCoverage < target);
+            if (topN is int n)
+                classes = classes.Take(n);
+
+            var list = classes.ToList();
+            if (methodsPerClass is int mpc)
+                list = list.Select(c => c with { Methods = c.Methods.Take(mpc).ToList() }).ToList();
+
+            return JsonHelper.Serialize(list);
         }
         catch (InvalidOperationException ex)
         {
@@ -449,8 +474,7 @@ public class CoverageTools
             totalLines = files.Sum(f => f.lines),
             lineBudget,
             batchCount = batches.Count,
-            batches,
-            files
+            batches
         });
     }
 
@@ -474,6 +498,18 @@ public class CoverageTools
     }
 
     // --- Private helpers ---
+
+    // dotnet test stdout is large and mostly noise once a run succeeds. Callers get the
+    // artifact paths on success; on failure we return only the tail, which is where the
+    // build/test error almost always is, so the full log never lands in the transcript.
+    private const int OutputTailChars = 1500;
+    private static string Tail(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        return s.Length <= OutputTailChars
+            ? s
+            : $"...(truncated {s.Length - OutputTailChars} of {s.Length} chars; re-run for full output)\n" + s[^OutputTailChars..];
+    }
 
     /// <summary>
     /// Walk up from a coverage XML path to find the project root.
