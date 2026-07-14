@@ -1,0 +1,8 @@
+name: "dotnet-coverage-mcp CodeQL config"
+
+# Exclude the test project from analysis. Its alerts are dominated by benign
+# code-quality heuristics (e.g. cs/path-combine false positives, where the second
+# Path.Combine argument is always a relative literal), and test code is not shipped.
+# Production code under the repo root is still fully scanned with security-and-quality.
+paths-ignore:
+  - "**/*.Tests/**"
