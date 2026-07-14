@@ -39,6 +39,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
+          config-file: ./.github/codeql/codeql-config.yml
 
       # Build only the production project so CodeQL analyzes shipped code only.
       # paths/paths-ignore filters are NOT honored for compiled languages, so

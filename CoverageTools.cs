@@ -448,7 +448,7 @@ public class CoverageTools
                     currentBatch = [];
                     currentBatchLines = 0;
                 }
-                batches.Add([(object)file]);
+                batches.Add([file]);
                 continue;
             }
 
