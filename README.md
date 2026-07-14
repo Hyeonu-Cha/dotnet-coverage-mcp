@@ -35,7 +35,7 @@ AI Client  <--stdio/MCP-->  dotnet-coverage-mcp  <--shell-->  dotnet test + repo
 |------|-------------|
 | `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` project. Returns file metadata (lines, method count) and smart batches grouped by `lineBudget`. |
 | `RunTestsWithCoverage` | Run `dotnet test` with XPlat Code Coverage, generate a JSON summary via `reportgenerator`. Returns paths to `Summary.json` and `coverage.cobertura.xml`. Supports `forceRestore` and `sessionId` for concurrent isolation. |
-| `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data sorted by branch coverage ascending (lowest first). |
+| `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data sorted worst-first by branch coverage. Optional `belowTarget`/`topN`/`methodsPerClass` filters trim the response to what still needs work. |
 | `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes meet the configured `targetRate` for both line and branch coverage; default 0.8). Supports `sessionId`. |
 | `GetUncoveredBranches` | Find uncovered branch conditions for methods matching a given name. Returns all matching methods with partial name support. Supports `sessionId`. |
 | `GetCoverageDiff` | Compare current Cobertura XML against baseline. Shows method-level changes including new and removed methods. Supports `sessionId` for concurrent isolation. |
@@ -227,6 +227,9 @@ Or point directly at the compiled executable:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `summaryJsonPath` | string | Yes | Full path to the generated `Summary.json` file |
+| `belowTarget` | double | No | When set (a fraction in `[0,1]`, e.g. `0.8`), return only classes whose line OR branch coverage is below this threshold. Omit for all classes. |
+| `topN` | int | No | Return only the N lowest-branch-coverage classes (results are sorted worst-first). Omit for all classes. |
+| `methodsPerClass` | int | No | Keep at most this many lowest-branch-coverage methods per class, trimming the rest. Omit to keep all methods. |
 
 ### `GetFileCoverage`
 | Parameter | Type | Required | Description |

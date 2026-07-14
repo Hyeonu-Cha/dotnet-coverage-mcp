@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dotnet test --blame-hang-timeout` (default 30s). Raise it when a project has
   legitimately long-running integration tests that would otherwise trip the
   hang dump and abort the entire run.
+- `belowTarget`, `topN`, and `methodsPerClass` filters on `GetCoverageSummary`,
+  so callers can request only the classes/methods still below target instead of
+  the full report. Classes are now returned worst-branch-coverage first.
 
 ### Fixed
 - `includeClass` on `RunTestsWithCoverage` now actually scopes coverage. It was
@@ -53,6 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Serialized JSON output is unchanged.
 - `CoverageTools` moved into the `DotNetCoverageMcp` namespace (it previously sat
   in the global namespace, inconsistent with every other type).
+- Tool responses trimmed to cut token usage that persists in the agent
+  transcript: `RunTestsWithCoverage` no longer echoes the full `dotnet test`
+  stdout on success (paths only) and returns just the tail on failure;
+  `GetSourceFiles` drops the flat `files` array that duplicated `batches`;
+  `GetCoverageDiff` reports `unchangedCount` instead of listing every unchanged
+  method; and `GetUncoveredBranches` omits matched methods with no uncovered
+  branches and caps results at 25. Skill docs updated to match.
 
 ## [0.1.1] - 2026-05-05
 

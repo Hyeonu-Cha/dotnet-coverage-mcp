@@ -33,7 +33,7 @@ public record DiffResult(
     DiffDelta? CycleImprovement,
     List<MethodDiff>? ChangedMethods,
     List<MethodDiff>? RemovedMethods,
-    List<string>? Unchanged);
+    int UnchangedCount);
 
 public record DiffDelta(double LineDelta, double BranchDelta);
 
@@ -44,6 +44,8 @@ public record MethodDiff(string Name, double LineBefore, double LineAfter, doubl
 public class CoberturaService : ICoberturaService
 {
     private readonly ILogger<CoberturaService> _logger;
+    // Cap uncovered-branch results so a broad partial method-name match can't balloon the payload.
+    private const int MaxUncoveredMethods = 25;
 
     public CoberturaService(ILogger<CoberturaService> logger)
     {
@@ -167,9 +169,14 @@ public class CoberturaService : ICoberturaService
                 .ToList();
 
             return new UncoveredMethod(methodFullName, className, uncoveredBranches);
-        }).ToList();
+        })
+        // Drop methods whose partial name matched but have no uncovered branches — pure
+        // noise — and cap the rest so a broad match can't blow up the response.
+        .Where(m => m.UncoveredBranches.Count > 0)
+        .Take(MaxUncoveredMethods)
+        .ToList();
 
-        return new UncoveredBranchesResult(results.Count, results);
+        return new UncoveredBranchesResult(matchedMethods.Count, results);
     }
 
     public DiffResult ComputeDiff(string currentXmlPath, string baselinePath)
@@ -198,7 +205,7 @@ public class CoberturaService : ICoberturaService
         }
 
         var changedMethods = new List<MethodDiff>();
-        var unchangedMethods = new List<string>();
+        var unchangedCount = 0;
         var seenKeys = new HashSet<string>();
 
         foreach (var method in currentDoc.Descendants("method"))
@@ -215,7 +222,7 @@ public class CoberturaService : ICoberturaService
                 if (Math.Abs(curLine - prev.LineRate) > 0.001 || Math.Abs(curBranch - prev.BranchRate) > 0.001)
                     changedMethods.Add(new MethodDiff(name, Math.Round(prev.LineRate, 4), Math.Round(curLine, 4), Math.Round(prev.BranchRate, 4), Math.Round(curBranch, 4)));
                 else
-                    unchangedMethods.Add(name);
+                    unchangedCount++;
             }
             else
             {
@@ -233,7 +240,7 @@ public class CoberturaService : ICoberturaService
             CycleImprovement: new DiffDelta(Math.Round(curLineRate - prevLineRate, 4), Math.Round(curBranchRate - prevBranchRate, 4)),
             ChangedMethods: changedMethods,
             RemovedMethods: removedMethods,
-            Unchanged: unchangedMethods);
+            UnchangedCount: unchangedCount);
     }
 
 }
