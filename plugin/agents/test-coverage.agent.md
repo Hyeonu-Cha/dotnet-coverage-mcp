@@ -54,6 +54,7 @@ If not a .NET test context, explain your specialization and suggest general assi
 | `GetUncoveredBranches` | Find uncovered branch conditions for a specific method |
 | `GetCoverageDiff` | Compare current XML against `.coverage-prev.xml` baseline |
 | `AppendTestCode` | Insert or append C# test code into a test file |
+| `CleanupSession` | Remove `TestResults-*`/`coveragereport-*` artifacts and session state once the goal is met |
 
 ## Clean DI Patterns
 
@@ -87,11 +88,24 @@ If not a .NET test context, explain your specialization and suggest general assi
 
 1. Call `GetSourceFiles` first to discover files and build batches by line budget
 2. Always get a baseline before writing tests
-3. Run `dotnet test` **once per cycle** (broad filter), then check each file with `GetFileCoverage`
+3. **Write 3–5 tests before running coverage** — For each uncovered branch identified in step 4, use `AppendTestCode` to write the test method sequentially WITHOUT calling `RunTestsWithCoverage` after each one. Only after all 3–5 test methods are written, call `RunTestsWithCoverage` once (broad filter) to verify the batch, then check each file with `GetFileCoverage`
 4. Focus on the 3 lowest branch-coverage methods across the current batch
 5. After each cycle, call `GetCoverageDiff` to verify improvement
 6. Mark files as done when `allMeetTarget: true`, move to next batch when current batch is done
 7. Stop batch after 3 cycles with no improvement; mark stuck methods as blocked
+8. **Clean up when done** — Once all files in scope report `allMeetTarget: true` (or all remaining methods are marked blocked), call `CleanupSession` with the project `workingDir` (and the same `sessionId` you used for `RunTestsWithCoverage`, if any) to remove `TestResults-{hash}/`, `coveragereport-{hash}/`, and session state files. Always run this as the final step — do not leave coverage artifacts behind on disk
+
+## Batching Rule (Critical)
+
+- Each MSBuild compilation cycle costs 3–10 seconds. Writing multiple tests atomically and running them in one compilation reduces this overhead by ~80%.
+- Do NOT call `RunTestsWithCoverage` immediately after writing a single test. Always batch: identify 3–5 branches, write all methods via `AppendTestCode`, then run once.
+- Exception: if a syntax error is detected, use the Edit tool to fix it before proceeding, then resume batching.
+
+## Cleanup Rule
+
+- Coverage artifacts (`TestResults-*`, `coveragereport-*`, `.mcp-coverage` state) are NOT deleted automatically by the tools. The agent is responsible for calling `CleanupSession` as the last action once the coverage goal is met.
+- Pass the SAME `sessionId` used during the run so the scoped artifacts are removed. If no `sessionId` was used, call `CleanupSession` with just `workingDir`.
+- Only clean up after confirming the goal is reached — never mid-loop, or you will delete the coverage XML that the next `GetCoverageDiff`/`GetFileCoverage` call depends on.
 
 ## Common Issues
 
@@ -100,3 +114,4 @@ If not a .NET test context, explain your specialization and suggest general assi
 3. If `GetUncoveredBranches` returns no results, try a shorter partial method name
 4. If coverage doesn't improve after writing a test, check that the mock setup matches the branch condition
 5. For complex branches (async, private, static), note them as blocked after reasonable attempts
+6. If tempted to check coverage after one test: resist it. Batch 3–5 tests first
