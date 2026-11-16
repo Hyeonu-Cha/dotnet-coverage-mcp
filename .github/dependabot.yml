@@ -8,6 +8,10 @@ updates:
     labels:
       - dependencies
       - nuget
+    # One PR per week for routine bumps; majors still arrive individually.
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -17,3 +21,6 @@ updates:
     labels:
       - dependencies
       - github-actions
+    groups:
+      actions:
+        patterns: ["*"]

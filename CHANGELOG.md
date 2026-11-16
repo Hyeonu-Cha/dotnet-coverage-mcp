@@ -5,6 +5,25 @@ All notable changes to dotnet-coverage-mcp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Breaking:** the tool now targets .NET 10 (was .NET 9, which is out of
+  support) and sets `RollForward=Major`. It runs on .NET 10 and any later
+  runtime; a machine with only the .NET 9 runtime can no longer run it.
+  Previously the package started only where a .NET 9 runtime was installed,
+  so `dnx`-based installs on a .NET 10-only machine failed at startup.
+
+### CI
+- Every PR now packs the tool, installs it from the local package, starts it
+  over stdio, and checks that `tools/list` returns all 8 tools.
+- The release workflow rejects a tag that is not on `main` or does not match
+  both version fields in `server.json`, runs the same smoke test before
+  publishing, and creates the GitHub Release with `gh` instead of a
+  third-party action.
+- CI reports line/branch coverage in the job summary and cancels superseded PR
+  runs. Dependabot groups minor/patch bumps into one weekly PR.
+
 ## [1.0.0] - 2026-07-14
 
 ### Added
