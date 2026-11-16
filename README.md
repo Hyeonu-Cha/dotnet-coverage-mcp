@@ -53,6 +53,7 @@ For projects with many source files, the recommended workflow is:
 5. **Write tests** — Use `AppendTestCode` to add test methods
 6. **Re-run and diff** — Run tests once, call `GetCoverageDiff` to verify improvement
 7. **Repeat** — Continue until batch files meet the target rate (default 80%) or 3 cycles with no improvement, then move to next batch
+8. **Clean up** — Once the goal is reached, call `CleanupSession` to remove `TestResults-{hash}/`, `coveragereport-{hash}/`, and session state files. These are **not** deleted automatically — they persist until `CleanupSession` is called (or until a time-based cleanup via `maxAgeMinutes`).
 
 This minimises `dotnet test` invocations (the main bottleneck) while still tracking per-file progress.
 
