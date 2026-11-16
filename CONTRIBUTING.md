@@ -15,7 +15,7 @@ workflow, expectations for pull requests, and how to report issues.
 ## Development Setup
 
 ### Prerequisites
-- .NET 9.0 SDK or later
+- .NET 10 SDK or later
 - `dotnet-reportgenerator-globaltool`:
   ```bash
   dotnet tool install --global dotnet-reportgenerator-globaltool
@@ -29,7 +29,7 @@ dotnet test
 ```
 
 All tests must pass before opening a pull request. CI runs the same commands on
-`ubuntu-latest` against .NET 9.0.x — see `.github/workflows/dotnet.yml`.
+`ubuntu-latest` against .NET 10.0.x — see `.github/workflows/dotnet.yml`.
 
 ### Running the server locally
 ```bash

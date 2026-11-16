@@ -7,11 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Breaking:** the tool now targets .NET 10 (was .NET 9, which is out of
+  support) and sets `RollForward=Major`. It runs on .NET 10 and any later
+  runtime; a machine with only the .NET 9 runtime can no longer run it.
+  Previously the package started only where a .NET 9 runtime was installed,
+  so `dnx`-based installs on a .NET 10-only machine failed at startup.
+
+### CI
+- Every PR now packs the tool, installs it from the local package, starts it
+  over stdio, and checks that `tools/list` returns all 8 tools.
+- The release workflow rejects a tag that is not on `main` or does not match
+  both version fields in `server.json`, runs the same smoke test before
+  publishing, and creates the GitHub Release with `gh` instead of a
+  third-party action.
+- CI reports line/branch coverage in the job summary and cancels superseded PR
+  runs. Dependabot groups minor/patch bumps into one weekly PR.
+
+## [1.0.0] - 2026-07-14
+
 ### Added
 - Parameter-level `[Description]` attributes on every tool in `CoverageTools`.
   AI clients now see per-argument guidance (expected format, validation rules,
   common conventions) in the MCP `tools/list` schema, instead of having to
   infer it from the method-level description or parameter names.
+- `skipReport` parameter on `RunTestsWithCoverage` (default `false`). When set,
+  the reportgenerator JSON-summary step is skipped and only the Cobertura XML
+  path is returned — a meaningful speedup for the inner test loop, where the
+  per-file tools (`GetFileCoverage`/`GetUncoveredBranches`/`GetCoverageDiff`)
+  read the XML directly and never touch `Summary.json`.
+- `COVERAGE_MCP_REPORTGEN_TIMEOUT_MS` environment override for the
+  reportgenerator timeout (default 60s), mirroring the existing
+  `COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS` override.
+- `COVERAGE_MCP_HANG_TIMEOUT_SECONDS` environment override for the per-test
+  `dotnet test --blame-hang-timeout` (default 30s). Raise it when a project has
+  legitimately long-running integration tests that would otherwise trip the
+  hang dump and abort the entire run.
+- `belowTarget`, `topN`, and `methodsPerClass` filters on `GetCoverageSummary`,
+  so callers can request only the classes/methods still below target instead of
+  the full report. Classes are now returned worst-branch-coverage first.
+
+### Fixed
+- `includeClass` on `RunTestsWithCoverage` now actually scopes coverage. It was
+  emitted as an MSBuild `/p:Include` property, which `coverlet.collector` ignores
+  (it reads filters from runsettings); it is now written to a generated
+  runsettings file and passed with `--settings`, so coverage is restricted to the
+  matching types as documented.
+- `reportgenerator` stdout/stderr read tasks are now drained on cancel/timeout
+  before the process is disposed, preventing an `UnobservedTaskException` once
+  the killed process's pipes close. This matches the existing `dotnet test`
+  drain path.
+- Age-based `CleanupSession` (no `sessionId`) now also sweeps the unsuffixed
+  `TestResults`/`coveragereport` directories created by single-agent runs,
+  matching the `sessionId`-scoped cleanup which already removed them.
+
+### Changed
+- `RunDotnetTestAsync` now reports its result via a `TestRunOutcome` enum
+  (`Success`/`BuildError`/`Cancelled`/`Timeout`) instead of overloading the
+  `Error` string with `"cancelled"`/`"timeout"` sentinels, so consumers branch
+  on a stable, refactor-safe signal.
+- `GetCoverageDiff` copies the coverage-XML baseline with a streaming
+  `File.Copy` (new `IFileService.AtomicCopyFile`) instead of reading the whole
+  file into a string and writing it back, avoiding a Large Object Heap
+  allocation per diff on large reports. Behaviour is unchanged.
+- `ParseSummary` returns typed `SummaryClass`/`SummaryMethod` records instead of
+  a `List<object>` of anonymous types, matching the other coverage result types.
+  Serialized JSON output is unchanged.
+- `CoverageTools` moved into the `DotNetCoverageMcp` namespace (it previously sat
+  in the global namespace, inconsistent with every other type).
+- Tool responses trimmed to cut token usage that persists in the agent
+  transcript: `RunTestsWithCoverage` no longer echoes the full `dotnet test`
+  stdout on success (paths only) and returns just the tail on failure;
+  `GetSourceFiles` drops the flat `files` array that duplicated `batches`;
+  `GetCoverageDiff` reports `unchangedCount` instead of listing every unchanged
+  method; and `GetUncoveredBranches` omits matched methods with no uncovered
+  branches and caps results at 25. Skill docs updated to match.
 
 ## [0.1.1] - 2026-05-05
 

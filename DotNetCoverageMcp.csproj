@@ -1,10 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <OutputType>Exe</OutputType>
+    <!-- Without this the tool only starts on a machine that has the exact
+         major runtime it was built for; a .NET 11+ only machine would fail with
+         "You must install or update .NET". -->
+    <RollForward>Major</RollForward>
     <!-- Default `dotnet pack` is intentionally a no-op. Packaging requires
          `-p:IsPacking=true` (set by .github/workflows/release.yml). This
          prevents accidental publishes of a malformed library package, since
@@ -53,9 +57,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
-    <PackageReference Include="ModelContextProtocol" Version="1.3.0" />
+    <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
   </ItemGroup>
 
 </Project>

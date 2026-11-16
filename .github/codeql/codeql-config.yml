@@ -1,0 +1,31 @@
+name: "dotnet-coverage-mcp CodeQL config"
+
+# Runs the full security-and-quality suite, but filters out a few quality rules that
+# are pure noise for this codebase (all have no security severity). Security rules and
+# every other quality rule still run. paths/paths-ignore is NOT used here — it has no
+# effect for compiled languages; test code is excluded at the build step instead.
+query-filters:
+  # Path.Combine here always takes a relative literal second argument, never a rooted
+  # path, so "may silently drop earlier arguments" is a false positive.
+  - exclude:
+      id: cs/path-combine
+  # Deliberate best-effort cleanup (deleting a temp file, killing a process tree) that
+  # must not throw; catching broadly is intentional.
+  - exclude:
+      id: cs/catch-of-all-exceptions
+  - exclude:
+      id: cs/empty-catch-block
+  # The pooled SemaphoreSlim is stored and reused, intentionally not disposed
+  # (see FileService.EvictStaleLocks); it holds no unmanaged handle.
+  - exclude:
+      id: cs/local-not-disposed
+  # Subjective style suggestions; the existing loops read more clearly than the
+  # LINQ/ternary rewrites CodeQL proposes.
+  - exclude:
+      id: cs/linq/missed-select
+  - exclude:
+      id: cs/linq/missed-where
+  - exclude:
+      id: cs/missed-ternary-operator
+  - exclude:
+      id: cs/string-concatenation-in-loop

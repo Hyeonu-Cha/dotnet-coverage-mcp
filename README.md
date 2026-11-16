@@ -3,6 +3,7 @@
 <!-- mcp-name: io.github.Hyeonu-Cha/dotnet-coverage-mcp -->
 
 [![build](https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/actions/workflows/dotnet.yml/badge.svg)](https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/actions/workflows/dotnet.yml)
+[![tests](https://img.shields.io/github/actions/workflow/status/Hyeonu-Cha/dotnet-coverage-mcp/dotnet.yml?branch=main&label=tests)](https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/actions/workflows/dotnet.yml)
 [![NuGet](https://img.shields.io/nuget/v/dotnet-coverage-mcp.svg)](https://www.nuget.org/packages/dotnet-coverage-mcp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -34,7 +35,7 @@ AI Client  <--stdio/MCP-->  dotnet-coverage-mcp  <--shell-->  dotnet test + repo
 |------|-------------|
 | `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` project. Returns file metadata (lines, method count) and smart batches grouped by `lineBudget`. |
 | `RunTestsWithCoverage` | Run `dotnet test` with XPlat Code Coverage, generate a JSON summary via `reportgenerator`. Returns paths to `Summary.json` and `coverage.cobertura.xml`. Supports `forceRestore` and `sessionId` for concurrent isolation. |
-| `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data sorted by branch coverage ascending (lowest first). |
+| `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data sorted worst-first by branch coverage. Optional `belowTarget`/`topN`/`methodsPerClass` filters trim the response to what still needs work. |
 | `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes meet the configured `targetRate` for both line and branch coverage; default 0.8). Supports `sessionId`. |
 | `GetUncoveredBranches` | Find uncovered branch conditions for methods matching a given name. Returns all matching methods with partial name support. Supports `sessionId`. |
 | `GetCoverageDiff` | Compare current Cobertura XML against baseline. Shows method-level changes including new and removed methods. Supports `sessionId` for concurrent isolation. |
@@ -58,18 +59,20 @@ This minimises `dotnet test` invocations (the main bottleneck) while still track
 
 ## Concurrency
 
-Multiple AI agents can safely run in parallel against the same repository by passing a `sessionId` to each tool call:
+Multiple AI agents can run in parallel by passing a `sessionId` to each tool call, which isolates their coverage artifacts:
 
 - **Isolated output directories** — `RunTestsWithCoverage` creates `TestResults-{hash}/` and `coveragereport-{hash}/` per session, preventing one agent from deleting another's XML mid-parse
 - **Scoped state files** — Coverage state is written to `.mcp-coverage/.coverage-state-{hash}`, so `ResolveCoberturaPath` resolves to the correct XML for each session
 - **Scoped baselines** — `GetCoverageDiff` stores baselines as `.coverage-prev-{hash}.xml` per session
 - **Atomic writes** — All file writes (state files and test code) use write-to-temp-then-rename to prevent corruption from race conditions or process crashes
 
+> **Limitation — build outputs are not session-scoped.** `sessionId` isolates coverage *artifacts*, not the .NET *build*. `dotnet test` compiles the target project into its shared `obj/` and `bin/`, which are not per-session, so two agents running `RunTestsWithCoverage` against the **same** test project at the same time collide on those outputs and fail with `buildError` (e.g. `CS2012: the file is being used by another process`). Run parallel agents against **different** test projects, or on separate working copies of the repo. Multiple agents on one project are fine as long as their `dotnet test` builds don't overlap.
+
 Without `sessionId`, tools use shared defaults — safe for single-agent use.
 
 ## Requirements
 
-- **.NET 9.0 SDK (or later)** — [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
+- **.NET 10 SDK (or later)** — [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
 - **reportgenerator** global tool — the server shells out to it to render coverage reports (installed in the [Install](#install) step below)
 - An MCP-compatible client (Claude Code, Gemini CLI, etc.)
 - **`COVERAGE_MCP_ALLOWED_ROOT`** — recommended. Set to your repository root to restrict every tool's filesystem access to that subtree. Any path passed by the client outside this root is rejected with `pathNotAllowed`. When unset, the server logs a warning once and accepts any path (backward-compatible, but not recommended for shared environments).
@@ -197,7 +200,7 @@ Or point directly at the compiled executable:
 {
   "mcpServers": {
     "coverage": {
-      "command": "<path-to-dotnet-coverage-mcp>\\bin\\Debug\\net9.0\\DotNetCoverageMcp.exe",
+      "command": "<path-to-dotnet-coverage-mcp>\\bin\\Debug\\net10.0\\DotNetCoverageMcp.exe",
       "transport": "stdio"
     }
   }
@@ -220,12 +223,16 @@ Or point directly at the compiled executable:
 | `workingDir` | string | No | Working directory; defaults to the project directory |
 | `forceRestore` | bool | No | When `true`, skips the `--no-restore` flag. Use after scaffolding a new test project or adding NuGet packages. |
 | `sessionId` | string | No | Isolates output directories (`TestResults-{hash}/`, `coveragereport-{hash}/`) and state files for concurrent multi-agent use. |
-| `includeClass` | string | No | Restrict coverage collection to types matching this name. Forwarded to coverlet as `/p:Include=[*]*{includeClass}`. Always honored when set, independent of `filter` — pass an explicit value to scope coverage; omit it to collect coverage for everything the run touches. |
+| `includeClass` | string | No | Restrict coverage collection to types matching this name (coverlet `Include` filter, applied via a generated runsettings file passed with `--settings`). Independent of `filter` — pass an explicit value to scope coverage; omit it to collect coverage for everything the run touches. Namespace-qualified names are not supported. |
+| `skipReport` | bool | No | When `true`, skips the `reportgenerator` JSON-summary step and returns only the Cobertura XML path. Faster for the inner test loop, where `GetFileCoverage`/`GetUncoveredBranches`/`GetCoverageDiff` read the XML directly. Leave `false` (default) when you need `GetCoverageSummary`'s `Summary.json`. |
 
 ### `GetCoverageSummary`
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `summaryJsonPath` | string | Yes | Full path to the generated `Summary.json` file |
+| `belowTarget` | double | No | When set (a fraction in `[0,1]`, e.g. `0.8`), return only classes whose line OR branch coverage is below this threshold. Omit for all classes. |
+| `topN` | int | No | Return only the N lowest-branch-coverage classes (results are sorted worst-first). Omit for all classes. |
+| `methodsPerClass` | int | No | Keep at most this many lowest-branch-coverage methods per class, trimming the rest. Omit to keep all methods. |
 
 ### `GetFileCoverage`
 | Parameter | Type | Required | Description |

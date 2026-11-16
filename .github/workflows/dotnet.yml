@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR supersedes the older run.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     strategy:
@@ -16,12 +21,12 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
 
       - name: Restore
         run: dotnet restore
@@ -30,4 +35,19 @@ jobs:
         run: dotnet build --no-restore --configuration Release
 
       - name: Test
-        run: dotnet test --no-build --configuration Release --verbosity normal
+        run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage" --results-directory ./TestResults
+
+      - name: Coverage summary
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          xml=$(find ./TestResults -name coverage.cobertura.xml | head -1)
+          line=$(grep -o 'line-rate="[0-9.]*"' "$xml" | head -1 | grep -o '[0-9.]*')
+          branch=$(grep -o 'branch-rate="[0-9.]*"' "$xml" | head -1 | grep -o '[0-9.]*')
+          awk -v l="$line" -v b="$branch" 'BEGIN { printf "### Coverage\n\n| Line | Branch |\n|---|---|\n| %.1f%% | %.1f%% |\n", l*100, b*100 }' >> "$GITHUB_STEP_SUMMARY"
+
+      # Pack, install, and start the real tool so packaging or startup breakage
+      # shows up on the PR instead of after a release tag is pushed.
+      - name: Pack and smoke-test the tool
+        shell: bash
+        run: bash .github/scripts/smoke-test.sh

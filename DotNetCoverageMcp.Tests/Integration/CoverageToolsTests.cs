@@ -52,7 +52,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(false, "", "cancelled", -1, null));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Cancelled, "", "", -1, null));
 
         var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
         AssertError(result, "cancelled");
@@ -64,7 +64,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(false, "output", "error", 1, null));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.BuildError, "output", "error", 1, null));
 
         var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
         AssertError(result, "buildError");
@@ -76,7 +76,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(true, "output", "", 0, null));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "output", "", 0, null));
 
         var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
         AssertError(result, "noCoverage");
@@ -88,7 +88,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(true, "test output", "", 0, "/coverage.xml"));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "test output", "", 0, "/coverage.xml"));
 
         _processRunner.Setup(p => p.RunReportGeneratorAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -107,7 +107,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(true, "", "", 0, "/coverage.xml"));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "", "", 0, "/coverage.xml"));
 
         _processRunner.Setup(p => p.RunReportGeneratorAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -125,7 +125,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(false, "", "cancelled", -1, null));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Cancelled, "", "", -1, null));
 
         await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
 
@@ -139,7 +139,7 @@ public class CoverageToolsTests
         _processRunner.Setup(p => p.RunDotnetTestAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new TestRunResult(true, "", "", 0, "/coverage.xml"));
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "", "", 0, "/coverage.xml"));
 
         _processRunner.Setup(p => p.RunReportGeneratorAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -152,6 +152,23 @@ public class CoverageToolsTests
         result.Should().Contain("coverage.xml");
     }
 
+    [Fact]
+    public async Task RunTestsWithCoverage_SkipReport_ReturnsXmlAndDoesNotRunReportGenerator()
+    {
+        _processRunner.Setup(p => p.RunDotnetTestAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "test output", "", 0, "/coverage.xml"));
+
+        var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir", skipReport: true);
+
+        result.Should().Contain("coverage.xml");
+        result.Should().Contain("report skipped");
+        _sessionManager.Verify(s => s.SaveCoverageState("/dir", "/coverage.xml", "Ns.Class", null), Times.Once);
+        _processRunner.Verify(p => p.RunReportGeneratorAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     // --- GetCoverageSummary ---
 
     [Fact]
@@ -159,6 +176,95 @@ public class CoverageToolsTests
     {
         var result = _sut.GetCoverageSummary("/nonexistent/Summary.json");
         AssertError(result, "fileNotFound");
+    }
+
+    [Fact]
+    public void GetCoverageSummary_BelowTarget_FiltersAndSortsWorstFirst()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}"); // must exist; content is unused since ParseSummary is mocked
+        try
+        {
+            _coberturaService.Setup(c => c.ParseSummary(path)).Returns(new List<SummaryClass>
+            {
+                new("HighCov", 0.95, 0.90, new List<SummaryMethod>()),
+                new("LowCov", 0.40, 0.30, new List<SummaryMethod>()),
+                new("MidCov", 0.85, 0.75, new List<SummaryMethod>()),
+            });
+
+            var result = _sut.GetCoverageSummary(path, belowTarget: 0.8);
+
+            using var doc = JsonDocument.Parse(result);
+            var classes = doc.RootElement.EnumerateArray()
+                .Select(e => e.GetProperty("class").GetString()).ToList();
+            // HighCov (0.95/0.90) is excluded; the rest are returned worst-branch-first.
+            classes.Should().Equal("LowCov", "MidCov");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCoverageSummary_TopNAndMethodsPerClass_Trim()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}");
+        try
+        {
+            _coberturaService.Setup(c => c.ParseSummary(path)).Returns(new List<SummaryClass>
+            {
+                new("A", 0.5, 0.5, new List<SummaryMethod> { new("m1", 0.1, 0.1), new("m2", 0.2, 0.2), new("m3", 0.3, 0.3) }),
+                new("B", 0.9, 0.9, new List<SummaryMethod>()),
+                new("C", 0.4, 0.4, new List<SummaryMethod>()),
+            });
+
+            var result = _sut.GetCoverageSummary(path, topN: 2, methodsPerClass: 1);
+
+            using var doc = JsonDocument.Parse(result);
+            var classes = doc.RootElement.EnumerateArray().ToList();
+            classes.Should().HaveCount(2);                                  // topN
+            classes[0].GetProperty("class").GetString().Should().Be("C");   // worst branch first
+            classes[1].GetProperty("class").GetString().Should().Be("A");
+            classes[1].GetProperty("methods").GetArrayLength().Should().Be(1); // methodsPerClass
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCoverageSummary_InvalidBelowTarget_ReturnsError()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}");
+        try
+        {
+            var result = _sut.GetCoverageSummary(path, belowTarget: 80);
+            AssertError(result, "invalidParameter");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCoverageSummary_InvalidTopN_ReturnsError()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}");
+        try
+        {
+            AssertError(_sut.GetCoverageSummary(path, topN: 0), "invalidParameter");
+            AssertError(_sut.GetCoverageSummary(path, topN: -1), "invalidParameter");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCoverageSummary_InvalidMethodsPerClass_ReturnsError()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{}");
+        try
+        {
+            AssertError(_sut.GetCoverageSummary(path, methodsPerClass: -1), "invalidParameter");
+        }
+        finally { File.Delete(path); }
     }
 
     // --- GetUncoveredBranches ---
@@ -274,8 +380,9 @@ public class CoverageToolsTests
     [Fact]
     public void GetCoverageDiff_DefaultWorkingDir_ResolvesToProjectRoot_NotTestResultsSubdir()
     {
-        // Simulate resolvedPath inside TestResults-xxx/guid/ structure
-        // The baseline should NOT be stored inside TestResults (it gets wiped)
+        // Simulate resolvedPath inside TestResults-xxx/guid/ structure.
+        // The baseline must NOT be stored inside TestResults (it gets wiped on the next
+        // run) — GetCoverageDiff should walk up past TestResults/guid to the project root.
         var resolvedPath = Path.Combine(Path.GetTempPath(), "TestResults-abc", Guid.NewGuid().ToString(), "coverage.cobertura.xml");
         var expectedRoot = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
 
@@ -283,13 +390,16 @@ public class CoverageToolsTests
             .Returns(resolvedPath);
         _sessionManager.Setup(s => s.ComputeSuffix(It.IsAny<string?>())).Returns("");
 
-        // GetCoverageDiff will try File.ReadAllText on resolvedPath and fail,
-        // but we can verify it creates .mcp-coverage in the right place
-        var result = _sut.GetCoverageDiff("x.xml");
+        // First run (no baseline yet): the baseline is copied to the resolved project
+        // root's .mcp-coverage, never inside the TestResults subdirectory.
+        _sut.GetCoverageDiff("x.xml");
 
-        // It should fail (file doesn't exist), but the error should NOT reference TestResults
-        // as the working directory — it should have walked up to temp root
-        AssertError(result, "parseFailed");
+        _fileService.Verify(f => f.AtomicCopyFile(
+            resolvedPath,
+            It.Is<string>(dst =>
+                dst.StartsWith(Path.Combine(expectedRoot, ".mcp-coverage"), StringComparison.OrdinalIgnoreCase)
+                && !dst.Contains("TestResults", StringComparison.OrdinalIgnoreCase))),
+            Times.Once);
     }
 
     // --- Helpers ---
