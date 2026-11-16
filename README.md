@@ -71,7 +71,7 @@ Without `sessionId`, tools use shared defaults — safe for single-agent use.
 
 ## Requirements
 
-- **.NET 9.0 SDK (or later)** — [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
+- **.NET 10 SDK (or later)** — [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
 - **reportgenerator** global tool — the server shells out to it to render coverage reports (installed in the [Install](#install) step below)
 - An MCP-compatible client (Claude Code, Gemini CLI, etc.)
 - **`COVERAGE_MCP_ALLOWED_ROOT`** — recommended. Set to your repository root to restrict every tool's filesystem access to that subtree. Any path passed by the client outside this root is rejected with `pathNotAllowed`. When unset, the server logs a warning once and accepts any path (backward-compatible, but not recommended for shared environments).
@@ -199,7 +199,7 @@ Or point directly at the compiled executable:
 {
   "mcpServers": {
     "coverage": {
-      "command": "<path-to-dotnet-coverage-mcp>\\bin\\Debug\\net9.0\\DotNetCoverageMcp.exe",
+      "command": "<path-to-dotnet-coverage-mcp>\\bin\\Debug\\net10.0\\DotNetCoverageMcp.exe",
       "transport": "stdio"
     }
   }
