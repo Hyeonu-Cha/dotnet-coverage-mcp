@@ -303,9 +303,9 @@ The skills support NUnit, xUnit, and MSTest with framework-agnostic reference do
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `Microsoft.Extensions.Hosting` | 10.0.7 | DI and hosting |
-| `ModelContextProtocol` | 1.2.0 | MCP server framework |
-| `Microsoft.CodeAnalysis.CSharp` | 5.3.0 | Roslyn AST for safe code insertion and accurate method counting (~15MB) |
+| `Microsoft.Extensions.Hosting` | 10.0.12 | DI and hosting |
+| `ModelContextProtocol` | 2.2.0 | MCP server framework |
+| `Microsoft.CodeAnalysis.CSharp` | 5.9.0 | Roslyn AST for safe code insertion and accurate method counting (~15MB) |
 
 ## Security
 
