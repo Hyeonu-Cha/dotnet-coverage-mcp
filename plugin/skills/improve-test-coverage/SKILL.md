@@ -56,7 +56,7 @@ Example response:
 For each file in the current batch:
 1. Read the source file to understand its constructor, dependencies, and public methods
 2. Check if a matching test file exists; if not, use `scaffold-test-files` to create one
-3. Note the test framework, mocking and assertion libraries from the test project's `PackageReference`s (xUnit / NUnit / MSTest; Moq / NSubstitute / FakeItEasy; FluentAssertions / Shouldly) and write every test in that style
+3. Call `GetTestEnvironment` once for the test project and write every test in that stack: its `conventions` give the exact attributes for tests, data-driven cases, setup and teardown, and `mocking` / `assertions` name the libraries to use. Read its `warnings` (e.g. no coverage collector) before the first run
 4. Verify the test file has per-test setup in that framework's style (xUnit: constructor; NUnit: `[SetUp]`; MSTest: `[TestInitialize]`); add one if missing using `AppendTestCode`
 
 ### Step 1: Run coverage for the batch (ONE test run)
