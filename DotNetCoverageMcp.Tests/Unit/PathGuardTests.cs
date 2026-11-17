@@ -137,6 +137,38 @@ public class PathGuardTests : IDisposable
     }
 
     [Fact]
+    public void Validate_SymlinkWhoseTargetPrefixIsItselfASymlink_Allowed()
+    {
+        // Reproduces the macOS case: the allowed root reaches the repo through a symlinked
+        // ancestor (/var -> /private/var), and a link inside the root records its target via
+        // that same symlinked prefix. Resolving only the link — not its target's prefix — left
+        // the two sides as /var/... vs /private/var/... and wrongly rejected an in-root file.
+        var baseDir = Path.Combine(Path.GetTempPath(), $"pg-prefix-{Guid.NewGuid():N}");
+        var realMount = Path.Combine(baseDir, "realmount");
+        Directory.CreateDirectory(Path.Combine(realMount, "pg", "real"));
+        File.WriteAllText(Path.Combine(realMount, "pg", "real", "f.cs"), "class F { }");
+
+        var mount = Path.Combine(baseDir, "mount");                     // ancestor symlink mount -> realmount
+        if (!TryCreateDirectorySymlink(mount, realMount)) return;
+        var linkin = Path.Combine(mount, "pg", "linkin");              // target recorded via `mount`
+        try
+        {
+            if (!TryCreateDirectorySymlink(linkin, Path.Combine(mount, "pg", "real"))) return;
+            var guard = CreateGuardWithRoot(Path.Combine(mount, "pg")); // root reached via the symlinked prefix
+
+            var act = () => guard.Validate(Path.Combine(mount, "pg", "linkin", "f.cs"), "p");
+
+            act.Should().NotThrow();
+        }
+        finally
+        {
+            try { Directory.Delete(linkin); } catch { }
+            try { Directory.Delete(mount); } catch { }
+            try { Directory.Delete(baseDir, true); } catch { }
+        }
+    }
+
+    [Fact]
     public void IsWithinAllowedRoot_EmptyPath_ReturnsFalse()
     {
         var guard = CreateGuardWithRoot(_tempRoot);
