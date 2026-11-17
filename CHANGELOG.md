@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the same run do not re-read the XML.
 
 ### Fixed
+- On Windows, writing a file right after it was last written could fail with
+  "Access to the path is denied": replacing a file that antivirus or the search
+  indexer briefly holds open without delete-sharing is refused. `AppendTestCode`
+  and the coverage baseline write now retry the replace for up to ~300 ms.
 - `RunTestsWithCoverage` with `filter: "*"` ran zero tests: VSTest has no wildcard,
   so `FullyQualifiedName~*` matched nothing, yet the run reported success with an
   all-zero coverage report. `*`, an empty filter, or no filter now runs every test,
