@@ -53,6 +53,7 @@ If not a .NET test context, explain your specialization and suggest general assi
 | `GetFileCoverage` | Get coverage for a single source file — returns `allMeetTarget` for file-by-file tracking |
 | `GetUncoveredBranches` | Find uncovered branch conditions for a specific method |
 | `GetCoverageDiff` | Compare current XML against `.coverage-prev.xml` baseline |
+| `DescribeTestTarget` | Constructor dependencies of a class with how to provide each in a test, its methods with decision points, uncontrollable calls, suggested test type, existing test files |
 | `GetTestEnvironment` | Test framework and its attributes, runner, coverage collector, mocking and assertion libraries of a test project; call once before writing tests |
 | `GetCoverageGaps` | Per file in a scope: done, or the fewest methods (with uncovered lines, branches and source) that bring it to the target |
 | `AppendTestCode` | Insert or append C# test code into a test file |
