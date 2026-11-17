@@ -455,6 +455,30 @@ public class CoverageTools
         }
     }
 
+    // --- 6c. GetTestEnvironment ---
+
+    [McpServerTool]
+    [Description("Detect a test project's stack: test framework (xUnit v2/v3, NUnit, MSTest) with the attributes to use for tests, data-driven cases, setup and teardown; runner (VSTest or Microsoft.Testing.Platform); coverage collector; mocking and assertion libraries; integration-test packages. Call once per test project before writing tests, and write every test in exactly this stack. Reads obj/project.assets.json when the project is restored, otherwise the .csproj.")]
+    public string GetTestEnvironment(
+        [Description("Absolute path to the test project's .csproj.")]
+        string testProjectPath)
+    {
+        try { _pathGuard.Validate(testProjectPath, nameof(testProjectPath)); }
+        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
+        if (!File.Exists(testProjectPath) || !testProjectPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+            return JsonHelper.Error("fileNotFound", $"Test project not found or not a .csproj: {testProjectPath}");
+
+        try
+        {
+            return JsonHelper.Serialize(TestEnvironmentDetector.Detect(testProjectPath));
+        }
+        catch (System.Xml.XmlException ex)
+        {
+            return JsonHelper.Error("parseFailed", $"Could not read the project file: {ex.Message}");
+        }
+    }
+
     // --- 7. GetSourceFiles ---
 
     [McpServerTool]

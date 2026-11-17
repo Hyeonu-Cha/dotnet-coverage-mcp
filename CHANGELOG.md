@@ -92,6 +92,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method no longer shows it as removed and re-added.
 
 ### Added
+- `GetTestEnvironment`: detects a test project's framework (xUnit v2/v3, NUnit,
+  MSTest) and the attributes to use for tests, data-driven cases, setup and
+  teardown; the runner (VSTest, or Microsoft.Testing.Platform via MSTest.Sdk,
+  `EnableMSTestRunner` / `EnableNUnitRunner` /
+  `UseMicrosoftTestingPlatformRunner` in the project or a Directory.Build.props,
+  or `global.json`); the coverage collector; mocking and assertion libraries;
+  integration-test packages. Reads `obj/project.assets.json` when restored, the
+  `.csproj` otherwise, and warns about a missing coverage collector. The
+  skills call it instead of guessing the framework.
 - `GetCoverageGaps`: one call per test cycle for a whole scope (file, folder,
   `.csproj` or list). Per file it reports whether the file meets the target on
   both lines and branches; for each file below it, the fewest methods that

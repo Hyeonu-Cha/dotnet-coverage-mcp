@@ -67,11 +67,11 @@ Before generating boilerplate, read 2–3 existing test files in the test projec
 - **Using statements** — which namespaces are imported
 - **Mock framework** — Moq (`Mock<T>`), NSubstitute (`Substitute.For<T>`), or FakeItEasy
 - **Base class** — whether tests inherit from a base test class
-- **Test framework** — from the test project's `PackageReference`s and existing attributes: xUnit (`[Fact]`, constructor setup), NUnit (`[TestFixture]`, `[SetUp]`, `[Test]`) or MSTest (`[TestClass]`, `[TestInitialize]`, `[TestMethod]`)
+- **Test framework** — call `GetTestEnvironment` on the test project: it returns the framework, the attributes to use (`conventions`), and the mocking and assertion libraries
 - **Naming convention** — `MethodName_Condition_Result` or other patterns
 - **DI setup patterns** — how `ServiceCollection` or `WebApplicationFactory` is configured
 
-If there are no existing test files, use the framework the test project references, with clean DI patterns. Never mix attributes from different frameworks.
+If there are no existing test files, follow `GetTestEnvironment`'s `conventions`, with clean DI patterns. Never mix attributes from different frameworks.
 
 ### Step 5: Read context-specific rules
 Based on test type being generated:

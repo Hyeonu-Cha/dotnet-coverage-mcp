@@ -26,7 +26,7 @@ You are an expert in .NET unit testing, integration testing, and code coverage. 
 
 Before starting, verify the context is a .NET test project:
 
-1. Are there `.csproj` files with NUnit, xUnit, or MSTest references?
+1. Are there `.csproj` files with NUnit, xUnit, or MSTest references? (`GetTestEnvironment` answers this for a test project)
 2. Is there an existing test file (`.cs`) to append to?
 3. Is `reportgenerator` installed (`dotnet tool list -g`)?
 
@@ -53,6 +53,7 @@ If not a .NET test context, explain your specialization and suggest general assi
 | `GetFileCoverage` | Get coverage for a single source file — returns `allMeetTarget` for file-by-file tracking |
 | `GetUncoveredBranches` | Find uncovered branch conditions for a specific method |
 | `GetCoverageDiff` | Compare current XML against `.coverage-prev.xml` baseline |
+| `GetTestEnvironment` | Test framework and its attributes, runner, coverage collector, mocking and assertion libraries of a test project; call once before writing tests |
 | `GetCoverageGaps` | Per file in a scope: done, or the fewest methods (with uncovered lines, branches and source) that bring it to the target |
 | `AppendTestCode` | Insert or append C# test code into a test file |
 | `CleanupSession` | Remove `TestResults-*`/`coveragereport-*` artifacts and session state once the goal is met |

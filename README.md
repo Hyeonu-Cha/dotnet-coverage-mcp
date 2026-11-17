@@ -39,6 +39,7 @@ MCP clients list these tools in snake_case (`run_tests_with_coverage`, `get_file
 | `RunTestsWithCoverage` | Run `dotnet test` with XPlat Code Coverage, generate a JSON summary via `reportgenerator`. Returns pass/fail/skip counts and paths to `Summary.json` and `coverage.cobertura.xml`. Distinguishes `testsFailed` (with each failure's message and stack, coverage kept), `noTestsMatched`, and `buildError` (compiler errors only). Supports `forceRestore` and `sessionId` for concurrent isolation. |
 | `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data sorted worst-first by branch coverage. Optional `belowTarget`/`topN`/`methodsPerClass` filters trim the response to what still needs work. |
 | `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes meet the configured `targetRate` for both line and branch coverage; default 0.8). Supports `sessionId`. |
+| `GetTestEnvironment` | Detect a test project's stack: framework (xUnit v2/v3, NUnit, MSTest) with the attributes to use, runner (VSTest or Microsoft.Testing.Platform), coverage collector, mocking and assertion libraries, integration-test packages, plus warnings such as a missing coverage collector. Reads `obj/project.assets.json` when restored. |
 | `GetCoverageGaps` | For a scope (file, folder, `.csproj` or list), report per file whether it meets `targetRate` on lines and branches, and for each file below it the fewest methods that close its gap, with uncovered line ranges, uncovered branches and the source around them. One call per test cycle. Non-target files are skipped as in `GetSourceFiles`. |
 | `GetUncoveredBranches` | Find uncovered branch conditions for methods matching a given name. Returns all matching methods with partial name support. Supports `sessionId`. |
 | `GetCoverageDiff` | Compare current Cobertura XML against baseline. Shows method-level changes including new and removed methods. Supports `sessionId` for concurrent isolation. |
@@ -243,6 +244,13 @@ Or point directly at the compiled executable:
 | `sourceFileName` | string | Yes | File to look up: an absolute path (as `GetSourceFiles` returns), a repo-relative path (`Services/ExampleService.cs`) or a bare name (`ExampleService.cs`). Matched on whole path segments; a bare name found in several folders returns `ambiguous` with the candidates. The response's `sourceFile` is the path that matched. |
 | `sessionId` | string | No | Resolves session-scoped state file for concurrent isolation. |
 | `targetRate` | double | No | Coverage threshold (0.0–1.0) used to compute `allMeetTarget`. Default `0.8`. |
+
+### `GetTestEnvironment`
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `testProjectPath` | string | Yes | Full path to the test project's `.csproj` |
+
+Returns a one-line `summary` (e.g. `xunit 2.9.3 on VSTest, coverlet.collector, Moq + FluentAssertions`), the detected packages, `conventions` (test, data-driven, setup and teardown attributes for the framework) and `warnings`.
 
 ### `GetCoverageGaps`
 | Parameter | Type | Required | Description |
