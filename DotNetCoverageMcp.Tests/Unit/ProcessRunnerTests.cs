@@ -65,6 +65,51 @@ public class ProcessRunnerTests
         result.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData("*")]
+    [InlineData(" * ")]
+    public void BuildTestArguments_RunAllFilter_OmitsFilterFlag(string? filter)
+    {
+        var args = ProcessRunner.BuildTestArguments("p.csproj", filter, "/results", false, null);
+
+        args.Should().NotContain("--filter");
+    }
+
+    // VSTest reads a bare term as FullyQualifiedName~term, so every shape must go
+    // through untouched; prefixing it is what broke dotted and multi-class filters.
+    [Theory]
+    [InlineData("OrderServiceTests")]
+    [InlineData("OrderServiceTests.PlacesOrder")]
+    [InlineData("OrderTests|PaymentTests")]
+    [InlineData("Category=Unit")]
+    [InlineData("FullyQualifiedName~Ns.OrderTests")]
+    public void BuildTestArguments_PassesFilterThroughUnchanged(string filter)
+    {
+        var args = ProcessRunner.BuildTestArguments("p.csproj", filter, "/results", false, null);
+
+        args[args.IndexOf("--filter") + 1].Should().Be(filter);
+    }
+
+    [Fact]
+    public void BuildTestArguments_ForceRestore_OmitsNoRestore()
+    {
+        ProcessRunner.BuildTestArguments("p.csproj", null, "/r", forceRestore: true, null)
+            .Should().NotContain("--no-restore");
+        ProcessRunner.BuildTestArguments("p.csproj", null, "/r", forceRestore: false, null)
+            .Should().Contain("--no-restore");
+    }
+
+    [Fact]
+    public void BuildTestArguments_RunSettings_AddsSettingsFlag()
+    {
+        var args = ProcessRunner.BuildTestArguments("p.csproj", null, "/r", false, "/tmp/x.runsettings");
+
+        args[args.IndexOf("--settings") + 1].Should().Be("/tmp/x.runsettings");
+    }
+
     [Fact]
     public void WriteIncludeRunSettings_WritesCoverletIncludeFilter()
     {

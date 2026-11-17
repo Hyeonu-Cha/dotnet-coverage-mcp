@@ -14,7 +14,7 @@ public record ReportResult(bool Success, string? SummaryPath, string? ErrorDetai
 public interface IProcessRunner
 {
     Task<TestRunResult> RunDotnetTestAsync(
-        string testProjectPath, string filter, string resultsDir,
+        string testProjectPath, string? filter, string resultsDir,
         string workingDir, bool forceRestore, string? includeClass, CancellationToken ct);
 
     Task<ReportResult> RunReportGeneratorAsync(
@@ -40,11 +40,9 @@ public class ProcessRunner : IProcessRunner
     }
 
     public async Task<TestRunResult> RunDotnetTestAsync(
-        string testProjectPath, string filter, string resultsDir,
+        string testProjectPath, string? filter, string resultsDir,
         string workingDir, bool forceRestore, string? includeClass, CancellationToken ct)
     {
-        var filterOp = filter.Contains('.') ? "=" : "~";
-
         var psi = new ProcessStartInfo
         {
             FileName = "dotnet",
@@ -54,18 +52,6 @@ public class ProcessRunner : IProcessRunner
             UseShellExecute = false
         };
 
-        // Use ArgumentList instead of string concatenation to prevent injection
-        psi.ArgumentList.Add("test");
-        psi.ArgumentList.Add(testProjectPath);
-        if (!forceRestore) psi.ArgumentList.Add("--no-restore");
-        psi.ArgumentList.Add("--blame-hang-timeout");
-        psi.ArgumentList.Add($"{HangTimeoutSeconds}s");
-        psi.ArgumentList.Add("--filter");
-        psi.ArgumentList.Add($"FullyQualifiedName{filterOp}{filter}");
-        psi.ArgumentList.Add("--collect:XPlat Code Coverage");
-        psi.ArgumentList.Add("--results-directory");
-        psi.ArgumentList.Add(resultsDir);
-
         // Scope coverage to matching types when the caller opts in. coverlet.collector
         // reads its Include filter from runsettings, not from an MSBuild /p: property (an
         // earlier version emitted /p:Include, which the collector silently ignored), so we
@@ -74,11 +60,11 @@ public class ProcessRunner : IProcessRunner
         try
         {
             if (!string.IsNullOrWhiteSpace(includeClass))
-            {
                 runSettingsPath = WriteIncludeRunSettings(includeClass);
-                psi.ArgumentList.Add("--settings");
-                psi.ArgumentList.Add(runSettingsPath);
-            }
+
+            // ArgumentList instead of string concatenation to prevent injection.
+            foreach (var arg in BuildTestArguments(testProjectPath, filter, resultsDir, forceRestore, runSettingsPath))
+                psi.ArgumentList.Add(arg);
 
             _logger.LogInformation("Starting dotnet test for {Project} with filter {Filter}", testProjectPath, filter);
 
@@ -146,6 +132,40 @@ public class ProcessRunner : IProcessRunner
             }
         }
     }
+
+    internal static List<string> BuildTestArguments(
+        string testProjectPath, string? filter, string resultsDir, bool forceRestore, string? runSettingsPath)
+    {
+        var args = new List<string> { "test", testProjectPath };
+        if (!forceRestore) args.Add("--no-restore");
+        args.Add("--blame-hang-timeout");
+        args.Add($"{HangTimeoutSeconds}s");
+
+        // VSTest has no wildcard: `*` would be matched literally and select zero tests,
+        // so "run everything" means passing no filter at all. Anything else goes through
+        // unchanged. VSTest already reads a bare term as `FullyQualifiedName~term`, so
+        // class names, dotted Class.Method names, `A|B` and `Category=Unit` all work.
+        // (Prefixing `FullyQualifiedName=` for dotted names, as an earlier version did,
+        // demanded the full namespace-qualified name and matched nothing.)
+        if (!RunsAllTests(filter))
+        {
+            args.Add("--filter");
+            args.Add(filter!.Trim());
+        }
+
+        args.Add("--collect:XPlat Code Coverage");
+        args.Add("--results-directory");
+        args.Add(resultsDir);
+        if (runSettingsPath != null)
+        {
+            args.Add("--settings");
+            args.Add(runSettingsPath);
+        }
+        return args;
+    }
+
+    internal static bool RunsAllTests(string? filter) =>
+        string.IsNullOrWhiteSpace(filter) || filter.Trim() == "*";
 
     // coverlet.collector reads its Include/Exclude filters from a runsettings file, not
     // from MSBuild /p: properties. To scope coverage to a class we write a minimal

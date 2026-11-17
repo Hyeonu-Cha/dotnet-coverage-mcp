@@ -23,7 +23,7 @@ Run a .NET test project with code coverage enabled and display a structured summ
 | Input | Required | Description |
 |-------|----------|-------------|
 | `testProjectPath` | Yes | Full path to the `.csproj` test project file |
-| `filter` | Yes | Test filter string matched against `FullyQualifiedName` (partial match if no dots; exact match if contains dots) |
+| `filter` | No | Passed to `dotnet test --filter`. A plain name matches tests whose fully qualified name contains it (`OrderServiceTests`, `OrderServiceTests.PlacesOrder`); VSTest expressions like `A\|B` or `Category=Unit` also work. Omit to run every test. |
 | `workingDir` | No | Working directory; defaults to the project directory |
 | `includeClass` | No | Restrict coverage collection to a single class name (e.g. `OrderService`), applied via coverlet's `Include` filter. Use ONLY when you want coverage scoped to one class. Do NOT pass a namespace — namespace-qualified names are not supported. Omit for broad/multi-class coverage. |
 | `forceRestore` | No | Set to `true` after scaffolding a new test project or adding NuGet packages. |

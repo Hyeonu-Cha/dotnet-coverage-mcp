@@ -47,7 +47,7 @@ AI Client  <--stdio/MCP-->  dotnet-coverage-mcp  <--shell-->  dotnet test + repo
 For projects with many source files, the recommended workflow is:
 
 1. **Discover** — Call `GetSourceFiles` on a folder or `.csproj` to get all files and smart batches
-2. **Run once** — Call `RunTestsWithCoverage` with a broad filter (e.g., `*`) to collect coverage across all files
+2. **Run once** — Call `RunTestsWithCoverage` without a filter (runs every test) to collect coverage across all files
 3. **Check per-file** — Call `GetFileCoverage` for each file in the current batch (instant XML parsing, no test re-run)
 4. **Focus** — Pick the 3 lowest branch-coverage methods and call `GetUncoveredBranches` for each
 5. **Write tests** — Use `AppendTestCode` to add test methods
@@ -219,7 +219,7 @@ Or point directly at the compiled executable:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `testProjectPath` | string | Yes | Full path to the `.csproj` test project |
-| `filter` | string | Yes | Test filter string (matched against `FullyQualifiedName`). Use `*` or `,` for broad runs across multiple test classes. |
+| `filter` | string | No | Passed to `dotnet test --filter`. A plain name matches tests whose fully qualified name contains it (`OrderServiceTests`, `OrderServiceTests.PlacesOrder`); full VSTest expressions also work (`OrderTests\|PaymentTests`, `Category=Unit`). Omit or pass `*` to run every test. |
 | `workingDir` | string | No | Working directory; defaults to the project directory |
 | `forceRestore` | bool | No | When `true`, skips the `--no-restore` flag. Use after scaffolding a new test project or adding NuGet packages. |
 | `sessionId` | string | No | Isolates output directories (`TestResults-{hash}/`, `coveragereport-{hash}/`) and state files for concurrent multi-agent use. |

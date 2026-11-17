@@ -45,7 +45,7 @@ Resolve all variables before running any tool. Do not proceed until each value i
 
 Call `RunTestsWithCoverage`:
 - `testProjectPath` → the `.csproj` from `TEST_PROJECT`
-- `filter` → use a broad filter (e.g., `*` or the test namespace) to cover all files in the batch with a single test run
+- `filter` → omit it to run every test (or pass the test namespace) so one test run covers all files in the batch
 - `forceRestore` → `true` on the first run after scaffolding; omit otherwise
 
 This returns both the `Summary.json` path and the `coverage.cobertura.xml` path. One test run covers the entire batch.

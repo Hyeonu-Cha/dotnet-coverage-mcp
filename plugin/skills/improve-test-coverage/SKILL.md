@@ -23,7 +23,7 @@ Autonomously run tests, identify coverage gaps, write targeted unit tests, and r
 |-------|----------|-------------|
 | `sourcePath` | Yes | Scope target: a `.cs` file, a folder, or a `.csproj` project |
 | `testProjectPath` | Yes | Full path to the `.csproj` test project |
-| `filter` | Yes | Test filter string — use `*` or broad filter for batch/folder/project scope |
+| `filter` | No | Test filter. Omit to run every test (the usual choice for batch/folder/project scope), or pass a namespace or class name to narrow the run |
 | `lineBudget` | No | Max total lines per batch (default: 300). Small files get grouped, large files run solo |
 | `workingDir` | No | Working directory; defaults to project directory |
 | `includeClass` | No | Do NOT pass this in the iterative workflow. It scopes coverage to a single class and would skew batch-level numbers. Only used by `run-coverage` for single-class reports. |
@@ -58,7 +58,7 @@ For each file in the current batch:
 3. Verify the test file has a `[SetUp]` method; add one if missing using `AppendTestCode`
 
 ### Step 1: Run coverage for the batch (ONE test run)
-Call `RunTestsWithCoverage` with `testProjectPath` and a **broad filter** (use `*` or namespace-level filter).
+Call `RunTestsWithCoverage` with `testProjectPath` and **no filter** (runs every test), or a namespace-level filter.
 This runs `dotnet test` **once** and collects coverage across all source files.
 
 Leave `includeClass` unset. It would silently limit collection to a single class and zero out the rest of the batch.
@@ -131,7 +131,7 @@ For each file in the batch:
 - `GetFileCoverage` is instant (XML parse) — call it for every file in the batch freely
 - Small files (< 100 lines) get batched together so AI handles 3–5 at once
 - Large files (> lineBudget) get their own batch for focused attention
-- Use broad filter (`*` or namespace) for batch/folder/project scope
+- Omit `filter` (or use a namespace) for batch/folder/project scope
 - Do NOT pass `includeClass` — it restricts coverage collection to one class and would zero out the rest of the batch
 
 ## Validation
@@ -151,5 +151,5 @@ For each file in the batch:
 | `AppendTestCode` inserts in wrong location | Use a precise `insertAfterAnchor` string matching the last test method signature |
 | Plateau after 1–2 cycles | Check if remaining uncovered branches require complex setup (async, private methods, static calls) — mark as blocked |
 | Over-testing simple properties | Skip auto-properties with no logic; focus on methods with conditionals |
-| Broad filter runs too many tests | Narrow filter to namespace level instead of `*` for faster test runs |
+| Running every test is too slow | Pass a namespace or class name as `filter` |
 | Batch too large for AI context | Reduce `lineBudget` (e.g., 200) to get smaller batches |

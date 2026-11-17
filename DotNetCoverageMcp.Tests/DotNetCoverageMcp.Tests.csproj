@@ -24,4 +24,12 @@
     <ProjectReference Include="..\DotNetCoverageMcp.csproj" />
   </ItemGroup>
 
+  <!-- Fixture projects for the end-to-end tests: copied to the output directory and
+       built from a temp copy at test time, never compiled into this project. -->
+  <ItemGroup>
+    <Compile Remove="Fixtures\**" />
+    <None Remove="Fixtures\**" />
+    <None Include="Fixtures\**" Exclude="Fixtures\**\bin\**;Fixtures\**\obj\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
