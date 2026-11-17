@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A run where no test matched the filter is now `noTestsMatched` instead of
   success with an all-zero report.
 - `buildError` now lists the compiler errors, each once, instead of a log tail.
+- `AppendTestCode` wrote syntactically invalid code into the test file and
+  reported success: the Roslyn path rejected it, then the string fallback
+  inserted it anyway, and the agent only found out at the next build. Invalid
+  code (including namespace/class wrappers and bare statements) is now
+  rejected with `syntaxError`, naming the compiler error and quoting the
+  offending line, and the file is not touched.
 
 ### Changed
 - `RunTestsWithCoverage` writes a TRX file (`--logger trx`) and reports

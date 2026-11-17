@@ -243,6 +243,43 @@ public class Second { public void Existing() { } }";
         result.Method.Should().Be(InsertionMethod.Appended);
     }
 
+    [Theory]
+    [InlineData("public void Bad( { }")]                                // unbalanced parens
+    [InlineData("[Fact] public void T() { Assert.True(x) }")]            // missing semicolon
+    [InlineData("namespace N { public class C { } }")]                  // namespace is not a member
+    [InlineData("if (true) { return; }")]                               // a statement, not a member
+    [InlineData("// only a comment")]                                   // nothing to insert
+    public async Task InsertCodeAsync_InvalidCode_ThrowsAndLeavesFileUntouched(string code)
+    {
+        // Regression: Roslyn rejected these, then the string fallback wrote them anyway.
+        var path = Path.Combine(_tempDir, "Target.cs");
+        const string original = "public class Foo { public void A() { } }";
+        File.WriteAllText(path, original);
+
+        var act = () => _sut.InsertCodeAsync(path, code, null);
+
+        await act.Should().ThrowAsync<CodeSyntaxException>();
+        File.ReadAllText(path).Should().Be(original);
+    }
+
+    [Theory]
+    [InlineData("[Fact]\npublic void A_Works() { Assert.True(true); }")]
+    [InlineData("using Moq;\n\n[Fact]\npublic void UsesMoq() { }")]     // leading usings are hoisted
+    [InlineData("private readonly int _x = 1;\n[Fact] public async Task B() { await Task.Yield(); }")]
+    [InlineData("public class NestedHelper { }")]                       // nested type is a member
+    public void FindSyntaxError_ValidMemberCode_ReturnsNull(string code)
+    {
+        CodeInserter.FindSyntaxError(code).Should().BeNull();
+    }
+
+    [Fact]
+    public void FindSyntaxError_QuotesOffendingLine()
+    {
+        var error = CodeInserter.FindSyntaxError("[Fact]\npublic void T()\n{\n    Assert.Equal(1, 2)\n}");
+
+        error.Should().Contain("CS1002").And.Contain("Near: `Assert.Equal(1, 2)`");
+    }
+
     [Fact]
     public async Task InsertCodeAsync_StringFallback_ExactAnchorMatch()
     {

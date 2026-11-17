@@ -400,6 +400,25 @@ public class CoverageToolsTests
     }
 
     [Fact]
+    public async Task AppendTestCode_SyntaxError_ReturnsSyntaxError()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
+                .ThrowsAsync(new CodeSyntaxException("codeToAppend is not valid C# member code"));
+
+            var result = await _sut.AppendTestCode(tempFile, "public void Bad( { }");
+
+            AssertError(result, "syntaxError");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public async Task AppendTestCode_RoslynSuccess_ReturnsRoslynLabel()
     {
         var tempFile = Path.GetTempFileName();
