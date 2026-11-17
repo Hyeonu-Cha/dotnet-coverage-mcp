@@ -1,6 +1,6 @@
 ---
 name: improve-test-coverage
-description: "Iteratively write .NET unit tests to improve code coverage toward 80% line and branch targets. USE FOR: autonomously running tests, finding gaps, writing targeted tests, and repeating until 80% coverage or plateau. Calls all 7 dotnet-coverage-mcp MCP tools: GetSourceFiles, RunTestsWithCoverage, GetCoverageSummary, GetCoverageDiff, GetUncoveredBranches, GetFileCoverage, AppendTestCode. Uses smart batching by line budget — small files grouped, large files solo. DO NOT USE FOR: just running tests without writing new ones (use run-coverage), inspecting a single method (use analyze-coverage-gaps)."
+description: "Iteratively write .NET unit tests to improve code coverage toward 80% line and branch targets. USE FOR: autonomously running tests, finding gaps, writing targeted tests, and repeating until 80% coverage or plateau. Uses the dotnet-coverage-mcp MCP tools GetSourceFiles, RunTestsWithCoverage, GetCoverageSummary, GetCoverageDiff, GetUncoveredBranches, GetFileCoverage, AppendTestCode and CleanupSession. Uses smart batching by line budget — small files grouped, large files solo. DO NOT USE FOR: just running tests without writing new ones (use run-coverage), inspecting a single method (use analyze-coverage-gaps)."
 ---
 
 # Improve Test Coverage Iteratively
@@ -55,7 +55,8 @@ Example response:
 For each file in the current batch:
 1. Read the source file to understand its constructor, dependencies, and public methods
 2. Check if a matching test file exists; if not, use `scaffold-test-files` to create one
-3. Verify the test file has a `[SetUp]` method; add one if missing using `AppendTestCode`
+3. Note the test framework, mocking and assertion libraries from the test project's `PackageReference`s (xUnit / NUnit / MSTest; Moq / NSubstitute / FakeItEasy; FluentAssertions / Shouldly) and write every test in that style
+4. Verify the test file has per-test setup in that framework's style (xUnit: constructor; NUnit: `[SetUp]`; MSTest: `[TestInitialize]`); add one if missing using `AppendTestCode`
 
 ### Step 1: Run coverage for the batch (ONE test run)
 Call `RunTestsWithCoverage` with `testProjectPath` and **no filter** (runs every test), or a namespace-level filter.
@@ -82,7 +83,7 @@ Note which branch conditions (`branch-N-true`, `branch-N-false`) are uncovered a
 For each uncovered branch, write a focused unit test using `AppendTestCode`:
 - Target one specific branch condition per test
 - Max 1–3 assertions per test
-- Use `[TestCase]` for data variations, separate `[Test]` methods for different mock setups
+- Use the framework's data-driven attribute for data variations (xUnit `[Theory]` + `[InlineData]`, NUnit `[TestCase]`, MSTest `[DataRow]`), and separate test methods for different mock setups
 - Use `insertAfterAnchor` to place tests after the relevant test class or last test method
 - Tests may go to **different test files** across the batch — that's expected
 
