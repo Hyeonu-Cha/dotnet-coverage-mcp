@@ -117,7 +117,7 @@ public class ProcessRunner : IProcessRunner
             }
 
             var output = await outTask;
-            var error = await errTask;
+            var error = StripAnsi(await errTask);
 
             _logger.LogInformation("dotnet test exited with code {ExitCode} for {Project}", process.ExitCode, testProjectPath);
 
@@ -269,14 +269,26 @@ public class ProcessRunner : IProcessRunner
     private static async Task<string> ReadLinesAsync(StreamReader reader, IProgress<string>? progress)
     {
         var output = new System.Text.StringBuilder();
-        while (await reader.ReadLineAsync() is { } line)
+        while (await reader.ReadLineAsync() is { } rawLine)
         {
+            var line = StripAnsi(rawLine);
             output.AppendLine(line);
             if (progress != null && ProgressMessage(line) is { } message)
                 progress.Report(message);
         }
         return output.ToString();
     }
+
+    private static readonly System.Text.RegularExpressions.Regex AnsiRx =
+        new(@"\x1B\[[0-9;?]*[ -/]*[@-~]", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Removes ANSI colour/cursor sequences. Microsoft.Testing.Platform colours its console
+    /// output where it thinks the terminal supports it (CI runners included), e.g.
+    /// "\e[32mTest run summary: Passed!" and "\e[m  total: 3", which would defeat every
+    /// line-based reading of the output and put noise in the text returned to the agent.
+    /// </summary>
+    internal static string StripAnsi(string text) => text.Contains('\x1B') ? AnsiRx.Replace(text, "") : text;
 
     private static readonly System.Text.RegularExpressions.Regex BuiltRx =
         new(@"^\s+(\S+) -> .+\.(?:dll|exe)\s*$", System.Text.RegularExpressions.RegexOptions.Compiled);

@@ -179,6 +179,21 @@ public class ProcessRunnerTests
     }
 
     [Fact]
+    public void StripAnsi_RemovesTheColourCodesMtpWritesOnCi()
+    {
+        // Verbatim from an MTP run on a GitHub Actions runner (SDK 10.0.404). Before
+        // stripping, neither the summary line nor "total:" was recognised.
+        const string colored = "\u001b[32mTest run summary: Passed!\n\u001b[m  total: 3\n  failed: 0\n\u001b[32m  succeeded: 3\n\u001b[m  skipped: 0\n";
+
+        var clean = ProcessRunner.StripAnsi(colored);
+
+        clean.Should().NotContain("\u001b");
+        ProcessRunner.ProgressMessage(clean.Split('\n')[0]).Should().Be("Test run summary: Passed!");
+        ProcessRunner.ParseMtpSummary(clean).Should().BeEquivalentTo(new TestSummary(3, 3, 0, 0, []));
+        ProcessRunner.StripAnsi("plain text").Should().Be("plain text");
+    }
+
+    [Fact]
     public void FindCoverageXml_PrefersTheShallowestReport()
     {
         // Microsoft's extension writes <guid>.cobertura.xml at the top and a copy under In/;

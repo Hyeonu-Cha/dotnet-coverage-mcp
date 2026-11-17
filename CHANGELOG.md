@@ -102,6 +102,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Progress notifications from `run_tests_with_coverage` when the client sends
   a progress token: restore, each project built, tests started, and the result
   line, read from `dotnet test` output as it runs (VSTest and MTP).
+  ANSI colour codes, which Microsoft.Testing.Platform writes on CI runners,
+  are stripped from the captured output first; they otherwise hid the summary
+  lines from the progress reporting and from the test-count fallback.
 - Microsoft.Testing.Platform support in `RunTestsWithCoverage`. When the
   repository's `global.json` selects MTP (on the .NET 10 SDK and later, MTP
   projects cannot run in `dotnet test`'s default VSTest mode at all), the run
