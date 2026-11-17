@@ -29,11 +29,12 @@ Given a .NET source file, automatically create matching unit test and integratio
 ## Workflow
 
 ### Step 1: Analyze source file
-Read the source file to extract:
-- **Namespace** (e.g., `MainProject.Subproject.Services`)
-- **Class name** (e.g., `ExampleService`)
-- **Constructor parameters** — all injected interfaces (e.g., `IRepository`, `ILogger<T>`)
-- **Public methods** — names and signatures to create test stubs for
+Call `DescribeTestTarget` on the source file. Per class it returns:
+- **Namespace** and **class name**
+- **Dependencies** — each constructor parameter with its `kind` and `howToProvide` (mock an interface, `NullLogger<T>.Instance` for a logger, `Options.Create(...)` for options, a real instance for a sealed or concrete class, SQLite in-memory for a `DbContext`, ...)
+- **Methods** — public and internal signatures to create test stubs for, with `decisionPoints` as a rough count of tests needed
+- **suggestedTestType** (`unit` / `integration` / `either`) with `reasons`, which decide between Step 6 and Step 7
+- **existingTestFiles** — if the class already has a test file, extend it instead (use `improve-test-coverage`)
 
 ### Step 2: Detect test project structure
 Scan the solution for test projects:

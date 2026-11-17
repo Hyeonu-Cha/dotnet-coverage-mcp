@@ -502,6 +502,26 @@ public class CoverageTools
         }
     }
 
+    // --- 6d. DescribeTestTarget ---
+
+    [McpServerTool(Title = "Describe a class to test", ReadOnly = true, Idempotent = true, OpenWorld = false)]
+    [Description("Describe what tests for a source file's classes need, without reading the whole file: constructor dependencies with how to provide each in a test (mock, NullLogger, Options.Create, in-memory SQLite DbContext, real instance for sealed/concrete classes...), public and internal methods with signatures, line ranges and decision points, calls a test cannot control (DateTime.Now, File.*, Guid.NewGuid...) with the usual seam, a suggested test type (unit / integration / either) with reasons, and existing test files for the class. Syntax-only; no build needed.")]
+    public string DescribeTestTarget(
+        [Description("Absolute path to the .cs source file to be tested.")]
+        string sourceFilePath)
+    {
+        try { _pathGuard.Validate(sourceFilePath, nameof(sourceFilePath)); }
+        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
+        if (!File.Exists(sourceFilePath) || !sourceFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            return JsonHelper.Error("fileNotFound", $"Source file not found or not a .cs file: {sourceFilePath}");
+
+        var description = TestTargetDescriber.Describe(sourceFilePath);
+        return description.Types.Count == 0
+            ? JsonHelper.Error("noTestableTypes", "The file declares no class, record or struct with methods or constructor dependencies.")
+            : JsonHelper.Serialize(description);
+    }
+
     // --- 7. GetSourceFiles ---
 
     [McpServerTool(Title = "Discover source files", ReadOnly = true, Idempotent = true, OpenWorld = false)]
