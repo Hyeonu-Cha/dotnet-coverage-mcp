@@ -188,13 +188,14 @@ public class SessionManager : ISessionManager
                 foreach (var dir in Directory.GetDirectories(workingDir))
                 {
                     var dirName = Path.GetFileName(dir);
-                    // Match exactly the artifact dirs this tool creates: the unsuffixed
-                    // name (single-agent runs) or the hyphen-suffixed name (TestResults-<key>).
-                    // A bare StartsWith("TestResults") would also match — and age-delete —
-                    // unrelated user dirs like TestResultsBackup/coveragereport_old.
+                    // Only hyphen-suffixed names: TestResults-mcp (single-agent runs) and
+                    // TestResults-<key>, plus coveragereport-<key> left by versions before 2.0.1.
+                    // The bare TestResults/coveragereport names belong to dotnet test, Visual
+                    // Studio or a hand-run reportgenerator, and a bare prefix match would also
+                    // catch user dirs like TestResultsBackup.
                     var isArtifactDir =
-                        dirName == "TestResults" || dirName.StartsWith("TestResults-", StringComparison.Ordinal)
-                        || dirName == "coveragereport" || dirName.StartsWith("coveragereport-", StringComparison.Ordinal);
+                        dirName.StartsWith("TestResults-", StringComparison.Ordinal)
+                        || dirName.StartsWith("coveragereport-", StringComparison.Ordinal);
                     if (isArtifactDir && Directory.GetLastWriteTimeUtc(dir) < cutoff)
                     {
                         _fileService.SafeDelete(dir);

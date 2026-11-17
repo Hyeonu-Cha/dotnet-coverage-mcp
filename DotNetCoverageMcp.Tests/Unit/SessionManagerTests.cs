@@ -242,22 +242,22 @@ public class SessionManagerTests : IDisposable
     }
 
     [Fact]
-    public void Cleanup_AgeSweep_RemovesUnsuffixedArtifactDirsButKeepsFreshOnes()
+    public void Cleanup_AgeSweep_RemovesStaleToolDirs_NeverTheUsersOwn()
     {
-        // Single-agent runs create unsuffixed TestResults/coveragereport dirs.
-        // The age-based sweep must remove the stale ones (mirroring the sessionId path)
-        // while leaving recent artifacts in place.
-        var staleResults = Path.Combine(_tempDir, "TestResults");
-        var staleReport = Path.Combine(_tempDir, "coveragereport");
+        // Single-agent runs write TestResults-mcp; versions before 2.0.1 also left
+        // coveragereport-<key>. The sweep removes stale ones and leaves recent ones.
+        var staleResults = Path.Combine(_tempDir, "TestResults-mcp");
+        var staleReport = Path.Combine(_tempDir, "coveragereport-abc");
         var freshResults = Path.Combine(_tempDir, "TestResults-fresh");
-        // A user dir that merely shares the prefix must NOT be swept, even when stale —
-        // the match is exact-name or hyphen-suffix only, never a bare prefix.
+        // dotnet test / Visual Studio write the bare TestResults, a hand-run reportgenerator
+        // often coveragereport, and TestResultsBackup merely shares the prefix: never swept.
+        var usersResults = Path.Combine(_tempDir, "TestResults");
+        var usersReport = Path.Combine(_tempDir, "coveragereport");
         var userBackup = Path.Combine(_tempDir, "TestResultsBackup");
-        foreach (var d in new[] { staleResults, staleReport, freshResults, userBackup })
+        foreach (var d in new[] { staleResults, staleReport, freshResults, usersResults, usersReport, userBackup })
             Directory.CreateDirectory(d);
-        Directory.SetLastWriteTimeUtc(staleResults, DateTime.UtcNow.AddMinutes(-200));
-        Directory.SetLastWriteTimeUtc(staleReport, DateTime.UtcNow.AddMinutes(-200));
-        Directory.SetLastWriteTimeUtc(userBackup, DateTime.UtcNow.AddMinutes(-200));
+        foreach (var d in new[] { staleResults, staleReport, usersResults, usersReport, userBackup })
+            Directory.SetLastWriteTimeUtc(d, DateTime.UtcNow.AddMinutes(-200));
         // freshResults keeps its just-created timestamp.
 
         _sut.Cleanup(_tempDir, null, 120);
@@ -265,6 +265,8 @@ public class SessionManagerTests : IDisposable
         _fileService.Verify(f => f.SafeDelete(staleResults), Times.Once);
         _fileService.Verify(f => f.SafeDelete(staleReport), Times.Once);
         _fileService.Verify(f => f.SafeDelete(freshResults), Times.Never);
+        _fileService.Verify(f => f.SafeDelete(usersResults), Times.Never);
+        _fileService.Verify(f => f.SafeDelete(usersReport), Times.Never);
         _fileService.Verify(f => f.SafeDelete(userBackup), Times.Never);
     }
 

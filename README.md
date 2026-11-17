@@ -45,7 +45,7 @@ MCP clients list these tools in snake_case (`run_tests_with_coverage`, `get_file
 | `GetUncoveredBranches` | Find uncovered branch conditions for methods matching a given name. Returns all matching methods with partial name support. Supports `sessionId`. |
 | `GetCoverageDiff` | Compare current Cobertura XML against baseline. Shows method-level changes including new and removed methods. Supports `sessionId` for concurrent isolation. |
 | `AppendTestCode` | Insert or append C# test code into a test file. Rejects code that is not valid C# member syntax with `syntaxError`, leaving the file unchanged. Supports anchor-based insertion with whitespace-tolerant fallback matching. Uses atomic writes to prevent file corruption. |
-| `CleanupSession` | Remove session state files and `TestResults/coveragereport` directories. Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes` (default 120). |
+| `CleanupSession` | Remove session state files and the `TestResults-*` directories the tool created (never the bare `TestResults` that `dotnet test` and Visual Studio use). Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes` (default 120). |
 
 ### Protocol details
 
@@ -226,7 +226,7 @@ Or point directly at the compiled executable:
 | `filter` | string | No | Passed to `dotnet test --filter`. A plain name matches tests whose fully qualified name contains it (`OrderServiceTests`, `OrderServiceTests.PlacesOrder`); full VSTest expressions also work (`OrderTests\|PaymentTests`, `Category=Unit`). Omit or pass `*` to run every test. |
 | `workingDir` | string | No | Working directory; defaults to the project directory |
 | `forceRestore` | bool | No | When `true`, skips the `--no-restore` flag. Use after scaffolding a new test project or adding NuGet packages. |
-| `sessionId` | string | No | Isolates the output directory (`TestResults-{hash}/`) and state files for concurrent multi-agent use. |
+| `sessionId` | string | No | Isolates the output directory (`TestResults-{hash}/`) and state files for concurrent multi-agent use. Without it, results go to `TestResults-mcp/`. |
 | `includeClass` | string | No | Restrict coverage collection to types matching this name (coverlet `Include` filter, applied via a generated runsettings file passed with `--settings`). Independent of `filter` — pass an explicit value to scope coverage; omit it to collect coverage for everything the run touches. Namespace-qualified names are not supported. |
 
 ### `GetCoverageSummary`

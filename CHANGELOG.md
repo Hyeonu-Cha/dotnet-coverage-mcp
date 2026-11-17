@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `RunTestsWithCoverage` without a `sessionId` wrote to `<project>/TestResults` and deleted
+  it at the start of every run. That is the folder plain `dotnet test` and Visual Studio
+  write to by default, so results you produced yourself were wiped. Single-agent runs now
+  use `TestResults-mcp`. The age-based `CleanupSession` sweep no longer deletes the bare
+  `TestResults` or `coveragereport` folders either; it removes only the hyphen-suffixed
+  folders the tool creates (`coveragereport-*` ones are left over from before 2.0.1).
+
 ## [2.0.1] - 2026-11-18
 
 2.0.0 was tagged but never published to NuGet; 2.0.1 is the first 2.x release there.
