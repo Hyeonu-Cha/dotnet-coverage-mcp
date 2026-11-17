@@ -53,12 +53,10 @@ internal sealed record CoverageModel(IReadOnlyList<string> SourceRoots, double L
         {
             var rawName = (string?)cls.Attribute("name") ?? "";
             var file = ((string?)cls.Attribute("filename") ?? "").Replace('\\', '/');
-            var segments = rawName.Split('/');
-            var firstGenerated = Array.FindIndex(segments, s => s.StartsWith('<'));
-            var generated = firstGenerated < 0 ? [] : segments[firstGenerated..];
-            var realClass = DisplayName(firstGenerated < 0 ? rawName : string.Join('/', segments[..firstGenerated]));
+            var (realName, generated) = SplitClassName(rawName);
+            var realClass = DisplayName(realName);
 
-            if (firstGenerated < 0)
+            if (generated.Length == 0)
                 classRates[(realClass, file)] = (Rate(cls, "line-rate"), Rate(cls, "branch-rate"));
             else
                 classRates.TryAdd((realClass, file), (null, null));
@@ -197,6 +195,40 @@ internal sealed record CoverageModel(IReadOnlyList<string> SourceRoots, double L
                 int.TryParse((string?)l.Attribute("hits"), out var h) ? h : 0,
                 covered, total, missing);
         }).ToList();
+
+    /// <summary>
+    /// Splits a report class name into the source class and the compiler-generated types
+    /// nested in it. Coverlet writes "Ns.Calc/&lt;AddAsync&gt;d__2", Microsoft's collector
+    /// "Ns.Calc.&lt;AddAsync&gt;d__2". A cut is made only at a '.' or '/' outside angle
+    /// brackets that directly precedes '&lt;', because generated names can contain dots
+    /// ("&lt;&lt;.ctor&gt;b__0_0&gt;d") and real nested classes ("Outer/Inner") must stay whole.
+    /// </summary>
+    internal static (string Real, string[] Generated) SplitClassName(string name)
+    {
+        var cuts = new List<int>();
+        var depth = 0;
+        for (var i = 0; i < name.Length; i++)
+        {
+            switch (name[i])
+            {
+                case '<': depth++; break;
+                case '>': depth--; break;
+                case '.' or '/' when depth == 0 && i + 1 < name.Length && name[i + 1] == '<':
+                    cuts.Add(i);
+                    break;
+            }
+        }
+        if (cuts.Count == 0) return (name, []);
+
+        var generated = new string[cuts.Count];
+        for (var k = 0; k < cuts.Count; k++)
+        {
+            var start = cuts[k] + 1;
+            var end = k + 1 < cuts.Count ? cuts[k + 1] : name.Length;
+            generated[k] = name[start..end];
+        }
+        return (name[..cuts[0]], generated);
+    }
 
     private static string? ParentName(string[] generatedSegments, string methodName)
     {

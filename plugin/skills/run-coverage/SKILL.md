@@ -85,6 +85,7 @@ Class: MyService
 
 | Pitfall | Solution |
 |---------|----------|
+| `missingExtension` error | The project runs on Microsoft.Testing.Platform and lacks the extension named in the message (usually `Microsoft.Testing.Extensions.CodeCoverage`); add that package and set `forceRestore: true` on the next run |
 | `reportgenerator` not found | Install via `dotnet tool install -g dotnet-reportgenerator-globaltool` |
 | `noTestsMatched` error | The filter selected nothing: omit it to run every test, or use a shorter name |
 | `Summary.json` not found | Check the path returned by `RunTestsWithCoverage`; ensure tests ran successfully |
