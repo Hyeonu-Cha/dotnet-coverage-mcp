@@ -66,7 +66,7 @@ public class DotnetTestEndToEndTests : IClassFixture<SampleProjectFixture>
         var messages = new List<string>();
         var progress = new SyncProgress(v => { lock (messages) messages.Add(v.Message!); });
 
-        await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, skipReport: true, progress: progress);
+        await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, progress: progress);
 
         messages.Should().HaveElementAt(0, "Starting dotnet test for SampleLib.Tests.csproj");
         messages.Should().Contain("Running tests in SampleLib.Tests.dll");
@@ -143,7 +143,7 @@ public class DotnetTestEndToEndTests : IClassFixture<SampleProjectFixture>
 
     private async Task<string> RunAndGetCoverageXmlPath(string? filter)
     {
-        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, filter, skipReport: true);
+        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, filter);
 
         const string marker = "Cobertura XML at: ";
         result.Should().Contain(marker, because: "the run should succeed; got: {0}", result);

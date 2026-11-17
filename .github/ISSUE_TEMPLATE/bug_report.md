@@ -29,5 +29,5 @@ What actually happened. Paste any error JSON returned by the tool.
 - `COVERAGE_MCP_ALLOWED_ROOT` set? (yes/no)
 
 ## Additional context
-Logs from stderr, relevant `Summary.json` / Cobertura snippets, or anything else
+Logs from stderr, relevant Cobertura snippets, or anything else
 that helps narrow down the cause.

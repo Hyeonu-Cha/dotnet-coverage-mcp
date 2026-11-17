@@ -16,10 +16,6 @@ workflow, expectations for pull requests, and how to report issues.
 
 ### Prerequisites
 - .NET 10 SDK or later
-- `dotnet-reportgenerator-globaltool`:
-  ```bash
-  dotnet tool install --global dotnet-reportgenerator-globaltool
-  ```
 
 ### Build and test
 ```bash
