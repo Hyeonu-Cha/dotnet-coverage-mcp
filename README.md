@@ -35,7 +35,7 @@ MCP clients list these tools in snake_case (`run_tests_with_coverage`, `get_file
 
 | Tool | Description |
 |------|-------------|
-| `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` project. Returns file metadata (lines, method count) and smart batches grouped by `lineBudget`. |
+| `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` project. For a folder or project, files that are not test targets (entry points, DI registration, generated code, data-only models, test projects) are left out and listed under `excluded` with the reason; a `.csproj` scope also stops at nested projects. Returns file metadata (lines, method count) and smart batches grouped by `lineBudget`. |
 | `RunTestsWithCoverage` | Run `dotnet test` with XPlat Code Coverage, generate a JSON summary via `reportgenerator`. Returns pass/fail/skip counts and paths to `Summary.json` and `coverage.cobertura.xml`. Distinguishes `testsFailed` (with each failure's message and stack, coverage kept), `noTestsMatched`, and `buildError` (compiler errors only). Supports `forceRestore` and `sessionId` for concurrent isolation. |
 | `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data sorted worst-first by branch coverage. Optional `belowTarget`/`topN`/`methodsPerClass` filters trim the response to what still needs work. |
 | `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes meet the configured `targetRate` for both line and branch coverage; default 0.8). Supports `sessionId`. |
@@ -214,7 +214,7 @@ Or point directly at the compiled executable:
 ### `GetSourceFiles`
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `path` | string | Yes | Path to a `.cs` file, folder, or `.csproj` project |
+| `path` | string | Yes | Path to a `.cs` file, folder, `.csproj` project, or a comma-separated list of `.cs` files. Files you name directly are always kept, even ones a folder scan would exclude |
 | `lineBudget` | int | No | Max total lines per batch (default: 300). Small files are grouped together; large files get their own batch. |
 
 ### `RunTestsWithCoverage`

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using ModelContextProtocol.Server;
 using DotNetCoverageMcp.Helpers;
@@ -397,7 +398,7 @@ public class CoverageTools
     // --- 7. GetSourceFiles ---
 
     [McpServerTool]
-    [Description("Discover .cs files from a file/folder/.csproj/comma-separated list and group into batches sized by `lineBudget`.")]
+    [Description("Discover .cs files from a file/folder/.csproj/comma-separated list and group into batches sized by `lineBudget`. For a folder or project, files that are not test targets (entry points, DI registration, generated code, data-only models) are left out of the batches and listed under `excluded` with the reason; files passed explicitly are always kept.")]
     public string GetSourceFiles(
         [Description("A single .cs file, a directory to scan recursively, a .csproj file, or a comma/semicolon-separated list of .cs file paths. Build/obj output is excluded automatically.")]
         string path,
@@ -447,9 +448,13 @@ public class CoverageTools
                 scope = "project";
                 scopePath = Path.GetFullPath(path);
                 var projectDir = Path.GetDirectoryName(scopePath) ?? Directory.GetCurrentDirectory();
+                var owners = new ProjectOwnerLookup();
+                // Projects nested under this one's folder (often its test project) own their
+                // own files; they are not part of this project's scope.
                 filePaths = Directory.GetFiles(projectDir, "*.cs", SearchOption.AllDirectories)
                     .Where(f => !_fileService.IsExcludedPath(f))
                     .Select(Path.GetFullPath)
+                    .Where(f => string.Equals(owners.OwningProject(f), scopePath, StringComparison.OrdinalIgnoreCase))
                     .OrderBy(f => f)
                     .ToList();
             }
@@ -469,9 +474,20 @@ public class CoverageTools
             }
         }
 
+        // Files discovered from a folder or project are narrowed to test targets (see
+        // SourceFileClassifier). Files the caller names explicitly are always kept, which is
+        // also the way to override the classifier for a file it got wrong.
+        var classify = scope is "folder" or "project";
+        var projects = new ProjectOwnerLookup();
         var bag = new ConcurrentBag<(string path, int lines, int methodCount)>();
+        var excludedBag = new ConcurrentBag<(string Path, NonTargetReason Reason)>();
         Parallel.ForEach(filePaths, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, f =>
         {
+            if (classify && (projects.TestProjectReason(f) ?? ClassifyOrNull(f)) is { } reason)
+            {
+                excludedBag.Add((f, reason));
+                return;
+            }
             var (lines, methodCount) = _fileService.GetFileMetadata(f);
             bag.Add((f, lines, methodCount));
         });
@@ -521,8 +537,58 @@ public class CoverageTools
             totalLines = files.Sum(f => f.lines),
             lineBudget,
             batchCount = batches.Count,
-            batches
+            batches,
+            excludedCount = excludedBag.Count,
+            // Capped: a large solution can have hundreds of DTOs or test files, and the count
+            // plus a sample is enough to spot a misclassified file.
+            excluded = excludedBag
+                .OrderBy(e => e.Path, StringComparer.OrdinalIgnoreCase)
+                .Take(MaxExcludedListed)
+                .Select(e => new
+                {
+                    path = e.Path,
+                    kind = JsonNamingPolicy.CamelCase.ConvertName(e.Reason.Kind.ToString()),
+                    reason = e.Reason.Reason
+                })
         });
+    }
+
+    private const int MaxExcludedListed = 100;
+
+    /// <summary>
+    /// Finds the .csproj that owns a source file (the nearest one walking up its folders),
+    /// with per-directory caching since a scope's files share folders.
+    /// </summary>
+    private sealed class ProjectOwnerLookup
+    {
+        private readonly ConcurrentDictionary<string, string?> _projectByDir = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, bool> _isTestProject = new(StringComparer.OrdinalIgnoreCase);
+
+        public string? OwningProject(string file) => ProjectIn(Path.GetDirectoryName(file));
+
+        private string? ProjectIn(string? dir) => dir == null ? null : _projectByDir.GetOrAdd(dir, d =>
+            ProjectFileIn(d) is { } project ? Path.GetFullPath(project) : ProjectIn(Path.GetDirectoryName(d)));
+
+        private static string? ProjectFileIn(string dir)
+        {
+            try { return Directory.GetFiles(dir, "*.csproj").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).FirstOrDefault(); }
+            catch (IOException) { return null; }
+            catch (UnauthorizedAccessException) { return null; }
+        }
+
+        public NonTargetReason? TestProjectReason(string file) =>
+            OwningProject(file) is { } project && _isTestProject.GetOrAdd(project, SourceFileClassifier.IsTestProject)
+                ? new NonTargetReason(NonTargetKind.TestCode, $"part of test project {Path.GetFileName(project)}")
+                : null;
+    }
+
+    // A file that can't be read is kept as a target; it fails visibly later instead of
+    // silently disappearing from the scope here.
+    private static NonTargetReason? ClassifyOrNull(string path)
+    {
+        try { return SourceFileClassifier.Classify(path, File.ReadAllText(path)); }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
     }
 
     // --- 8. CleanupSession ---
