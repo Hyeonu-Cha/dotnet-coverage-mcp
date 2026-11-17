@@ -286,6 +286,12 @@ public class CoverageTools
         try { _pathGuard.Validate(testFilePath, nameof(testFilePath)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
 
+        // Only C# source files. Without this the string fallback would happily append "test
+        // code" into any existing file the path points at — settings.json, a .csv, a prod
+        // source file — corrupting it and reporting success.
+        if (!testFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            return JsonHelper.Error("invalidParameter", "testFilePath must be a .cs file.");
+
         if (!File.Exists(testFilePath))
             return JsonHelper.Error("fileNotFound", $"Test file not found: {testFilePath}");
 
