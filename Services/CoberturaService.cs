@@ -168,10 +168,11 @@ public class CoberturaService : ICoberturaService
         path.EndsWith("/" + tail, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The path with every symlinked folder on it resolved. Coverlet records the path the
-    /// compiler saw, which is the resolved one: on macOS the temp folder /var/... is really
-    /// /private/var/..., and a repo can sit under a symlink anywhere. Returns the input when
-    /// nothing on the path is a link or it can't be resolved.
+    /// The path with the symlinked segments on it followed to their target. Coverlet records
+    /// the path the compiler saw, so this is used to line a queried path up with the one in the
+    /// report. It intentionally does NOT keep canonicalising a target's own prefix the way
+    /// <see cref="SymlinkResolver"/> (the security boundary) does: the report stores the path in
+    /// the form the link resolves to, and over-resolving it would stop the two from matching.
     /// </summary>
     internal static string ResolveSymlinks(string path)
     {

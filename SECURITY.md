@@ -40,7 +40,7 @@ The server defends against the following classes of issue:
 
 | Risk | Mitigation |
 | ---- | ---------- |
-| Path traversal via tool arguments | Every tool validates `path`/`workingDir`/`testFilePath` against `COVERAGE_MCP_ALLOWED_ROOT`. Calls outside the configured root return `pathNotAllowed`. |
+| Path traversal via tool arguments | Every tool validates `path`/`workingDir`/`testFilePath` against `COVERAGE_MCP_ALLOWED_ROOT`. Paths are resolved through symlinks/junctions before the check, so a link inside the root that points outside it is rejected; recursive `.cs` scans do not follow reparse points. Calls outside the configured root return `pathNotAllowed`. |
 | File corruption from concurrent writes | `AtomicWriteFile` writes to `.tmp-{guid}` then renames; per-file `SemaphoreSlim` serializes writes within a process. |
 | Test file mutation outside the target file | `AppendTestCode` only inserts into the file passed by the client; Roslyn AST insertion preserves existing structure, with a string fallback that targets the last class brace. |
 | Long-running test or report processes | `dotnet test` and `reportgenerator` invocations are wrapped with cancellation tokens and a default 10-minute timeout (override via `COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS`). |

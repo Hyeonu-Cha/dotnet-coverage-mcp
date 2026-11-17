@@ -26,7 +26,9 @@ public class PathGuard : IPathGuard
     {
         _logger = logger;
         var raw = Environment.GetEnvironmentVariable(EnvVarName);
-        _allowedRoot = string.IsNullOrWhiteSpace(raw) ? null : NormalizeRoot(raw);
+        // Resolve the root through any symlinks too, so a resolved candidate path is compared
+        // against a resolved root (e.g. macOS /var vs /private/var), not a half-resolved mix.
+        _allowedRoot = string.IsNullOrWhiteSpace(raw) ? null : NormalizeRoot(SymlinkResolver.Resolve(raw));
     }
 
     public string? AllowedRoot => _allowedRoot;
@@ -40,7 +42,10 @@ public class PathGuard : IPathGuard
         try { fullPath = Path.GetFullPath(path); }
         catch { return false; }
 
-        var normalized = NormalizeRoot(fullPath);
+        // Resolve symlinks/junctions before the containment check. Without this, a link inside
+        // the root that points outside it (root/link -> /etc) passes the lexical test while
+        // reading or writing an arbitrary location.
+        var normalized = NormalizeRoot(SymlinkResolver.Resolve(fullPath));
         return normalized.StartsWith(_allowedRoot, StringComparison.OrdinalIgnoreCase);
     }
 
