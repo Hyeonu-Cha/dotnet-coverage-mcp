@@ -3,7 +3,7 @@
 # and checks that tools/list returns every tool. Used by build.yml and release.yml.
 set -euo pipefail
 
-EXPECTED_TOOLS=8
+EXPECTED_TOOLS=9
 # A version that can never exist on nuget.org, so the install below cannot pick up
 # the published package instead of the one just built.
 VERSION=0.0.0-ci

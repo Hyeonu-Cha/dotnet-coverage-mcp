@@ -14,6 +14,8 @@ public interface ICoberturaService
     FileCoverageResult GetFileCoverage(string coberturaXmlPath, string sourceFileName, double targetRate);
     UncoveredBranchesResult GetUncoveredBranches(string coberturaXmlPath, string methodName);
     DiffResult ComputeDiff(string currentXmlPath, string baselinePath);
+    CoverageGapsResult GetCoverageGaps(string coberturaXmlPath, IReadOnlyList<string> sourceFiles,
+        double targetRate, int maxFiles, int maxMethodsPerFile, bool includeSource);
 }
 
 // --- Result types ---
@@ -34,6 +36,17 @@ public sealed class AmbiguousFileException(string message, IReadOnlyList<string>
 {
     public IReadOnlyList<string> Candidates { get; } = candidates;
 }
+
+public record CoverageGapsResult(
+    double TargetRate, int FilesInScope, int FilesDone, int FilesRemaining,
+    List<FileGap> Remaining, List<FileRates> MoreRemaining, List<string> Done, List<string> NotInReport);
+public record FileGap(
+    string File, double LineRate, double BranchRate, int LinesToCover, int BranchesToCover, bool ClosesGap,
+    List<MethodGap> Methods);
+public record MethodGap(
+    string Method, string Class, double LineRate, double BranchRate, string? UncoveredLines,
+    List<UncoveredBranch> UncoveredBranches, string? Source);
+public record FileRates(string File, double LineRate, double BranchRate);
 
 public record DiffResult(
     bool FirstRun,
@@ -231,6 +244,158 @@ public class CoberturaService : ICoberturaService
             .ToList();
 
         return new UncoveredBranchesResult(matched.Count, results);
+    }
+
+    private const int MaxSourceLinesPerMethod = 30;
+    private const int SourceContext = 2;
+    private const int MaxFileList = 100;
+
+    /// <summary>
+    /// For each file, whether it meets the target on lines and branches, and for the files
+    /// that don't, the fewest methods whose uncovered code closes that file's gap. The goal is
+    /// "every file reaches the target", so each file's gap is closed on its own.
+    /// </summary>
+    public CoverageGapsResult GetCoverageGaps(string coberturaXmlPath, IReadOnlyList<string> sourceFiles,
+        double targetRate, int maxFiles, int maxMethodsPerFile, bool includeSource)
+    {
+        var model = Load(coberturaXmlPath);
+        var done = new List<string>();
+        var notInReport = new List<string>();
+        var below = new List<(string SourcePath, string ReportFile, List<ClassCov> Classes, double Line, double Branch,
+            int LinesToCover, int BranchesToCover)>();
+
+        foreach (var sourcePath in sourceFiles)
+        {
+            var requested = NormalizePath(sourcePath);
+            var classes = model.Classes.Where(c => PathMatches(NormalizePath(c.File), requested, model.SourceRoots)).ToList();
+            if (classes.Count == 0)
+            {
+                notInReport.Add(sourcePath);
+                continue;
+            }
+
+            var reportFile = NormalizePath(classes[0].File);
+            var lines = CoverageModel.MergeLines(classes.SelectMany(c => c.Methods).SelectMany(m => m.Lines));
+            if (lines.Count == 0)
+            {
+                // No line data: fall back to the class-level rates the report carries.
+                if (classes.All(c => c.LineRate >= targetRate && c.BranchRate >= targetRate)) done.Add(reportFile);
+                else below.Add((sourcePath, reportFile, classes, classes.Min(c => c.LineRate), classes.Min(c => c.BranchRate), 0, 0));
+                continue;
+            }
+
+            int totalLines = lines.Count, coveredLines = lines.Count(l => l.Hits > 0);
+            int totalBranches = lines.Sum(l => l.BranchesTotal), coveredBranches = lines.Sum(l => l.BranchesCovered);
+            // Additional lines / branch outcomes that must be covered to reach the target.
+            var linesToCover = Math.Max(0, CeilFraction(targetRate, totalLines) - coveredLines);
+            var branchesToCover = totalBranches == 0 ? 0 : Math.Max(0, CeilFraction(targetRate, totalBranches) - coveredBranches);
+
+            if (linesToCover == 0 && branchesToCover == 0) done.Add(reportFile);
+            else below.Add((sourcePath, reportFile, classes, (double)coveredLines / totalLines,
+                totalBranches == 0 ? 1 : (double)coveredBranches / totalBranches, linesToCover, branchesToCover));
+        }
+
+        // Smallest gaps first: they finish in one cycle and leave the rest of the batch shorter.
+        var ordered = below.OrderBy(b => b.LinesToCover + b.BranchesToCover).ThenBy(b => b.ReportFile).ToList();
+
+        var detailed = ordered.Take(maxFiles).Select(b =>
+        {
+            var (methods, closes) = PickMethods(b.Classes, b.LinesToCover, b.BranchesToCover, maxMethodsPerFile,
+                includeSource ? ReadLines(b.SourcePath) : null);
+            return new FileGap(b.ReportFile, Math.Round(b.Line, 4), Math.Round(b.Branch, 4),
+                b.LinesToCover, b.BranchesToCover, closes, methods);
+        }).ToList();
+
+        var more = ordered.Skip(maxFiles).Take(MaxFileList)
+            .Select(b => new FileRates(b.ReportFile, Math.Round(b.Line, 4), Math.Round(b.Branch, 4)))
+            .ToList();
+
+        return new CoverageGapsResult(targetRate, sourceFiles.Count, done.Count, below.Count, detailed, more,
+            done.Order(StringComparer.OrdinalIgnoreCase).Take(MaxFileList).ToList(),
+            notInReport.Take(MaxFileList).ToList());
+    }
+
+    // ceil(fraction * total), robust to 0.8 * 5 = 4.000000000000001.
+    private static int CeilFraction(double fraction, int total) => (int)Math.Ceiling(fraction * total - 1e-9);
+
+    private static (List<MethodGap> Methods, bool ClosesGap) PickMethods(
+        List<ClassCov> classes, int linesToCover, int branchesToCover, int max, string[]? source)
+    {
+        // Rank by what each method can add towards the metrics still below target, in
+        // absolute counts: a long half-covered method holds more of the gap than a tiny
+        // helper at 0%, which is what ranking by rate used to prefer.
+        var candidates = classes
+            .SelectMany(c => c.Methods.Select(m => (Class: c, Method: m,
+                Lines: m.Lines.Count(l => l.Hits == 0),
+                Branches: m.Lines.Sum(l => l.BranchesTotal - l.BranchesCovered))))
+            .Select(x => (x.Class, x.Method, x.Lines, x.Branches,
+                Gain: (linesToCover > 0 ? x.Lines : 0) + (branchesToCover > 0 ? x.Branches : 0)))
+            .Where(x => x.Gain > 0)
+            .OrderByDescending(x => x.Gain)
+            .ThenBy(x => x.Method.FirstLine)
+            .ToList();
+
+        var picked = new List<MethodGap>();
+        int needLines = linesToCover, needBranches = branchesToCover;
+        foreach (var c in candidates)
+        {
+            if ((needLines <= 0 && needBranches <= 0) || picked.Count >= max) break;
+            needLines -= c.Lines;
+            needBranches -= c.Branches;
+
+            var uncoveredLines = c.Method.Lines.Where(l => l.Hits == 0).Select(l => l.Number).ToList();
+            var branches = c.Method.Lines.Where(l => l.Missing.Count > 0)
+                .Select(l => new UncoveredBranch(l.Number, l.Missing.ToList())).ToList();
+            picked.Add(new MethodGap(c.Method.Name, c.Class.Name, Math.Round(c.Method.LineRate, 4), Math.Round(c.Method.BranchRate, 4),
+                uncoveredLines.Count == 0 ? null : Ranges(uncoveredLines),
+                branches,
+                source == null ? null : Snippet(source, uncoveredLines, branches.Select(b => b.Line))));
+        }
+
+        return (picked, needLines <= 0 && needBranches <= 0);
+    }
+
+    private static string[]? ReadLines(string path)
+    {
+        try { return File.ReadAllLines(path); }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+    }
+
+    // [10, 11, 12, 15] → "10-12, 15"
+    internal static string Ranges(IReadOnlyList<int> sortedLines)
+    {
+        var parts = new List<string>();
+        for (var i = 0; i < sortedLines.Count; i++)
+        {
+            var start = sortedLines[i];
+            while (i + 1 < sortedLines.Count && sortedLines[i + 1] == sortedLines[i] + 1) i++;
+            parts.Add(start == sortedLines[i] ? $"{start}" : $"{start}-{sortedLines[i]}");
+        }
+        return string.Join(", ", parts);
+    }
+
+    // The source around each place a test still has to reach: every uncovered branch line and
+    // the start of every uncovered stretch, two lines either side. Saves a file read per method.
+    internal static string? Snippet(string[] source, IReadOnlyList<int> uncoveredLines, IEnumerable<int> branchLines)
+    {
+        var starts = uncoveredLines.Where((n, i) => i == 0 || uncoveredLines[i - 1] != n - 1);
+        var wanted = new SortedSet<int>();
+        foreach (var point in starts.Concat(branchLines))
+            for (var n = point - SourceContext; n <= point + SourceContext; n++)
+                if (n >= 1 && n <= source.Length) wanted.Add(n);
+        if (wanted.Count == 0) return null;
+
+        var output = new List<string>();
+        var previous = 0;
+        foreach (var n in wanted.Take(MaxSourceLinesPerMethod))
+        {
+            if (previous != 0 && n != previous + 1) output.Add("…");
+            output.Add($"{n}: {source[n - 1].TrimEnd()}");
+            previous = n;
+        }
+        if (wanted.Count > MaxSourceLinesPerMethod) output.Add("…");
+        return string.Join("\n", output);
     }
 
     public DiffResult ComputeDiff(string currentXmlPath, string baselinePath)

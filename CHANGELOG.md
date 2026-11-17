@@ -89,6 +89,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method no longer shows it as removed and re-added.
 
 ### Added
+- `GetCoverageGaps`: one call per test cycle for a whole scope (file, folder,
+  `.csproj` or list). Per file it reports whether the file meets the target on
+  both lines and branches; for each file below it, the fewest methods that
+  close that file's gap, ranked by absolute uncovered lines and branch
+  outcomes (only for the metric still below target), with uncovered line
+  ranges, uncovered branches and the source around them. Replaces one
+  `GetFileCoverage` per file plus one `GetUncoveredBranches` per method; the
+  `improve-test-coverage` skill now uses it.
 - `GetSourceFiles` leaves files that are not test targets out of the batches
   for folder and project scopes, and lists them under `excluded` with a kind
   and reason: entry points (`Program.cs`, `Startup.cs`, top-level statements,
@@ -107,7 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### CI
 - Every PR now packs the tool, installs it from the local package, starts it
-  over stdio, and checks that `tools/list` returns all 8 tools.
+  over stdio, and checks that `tools/list` returns every tool.
 - The release workflow rejects a tag that is not on `main` or does not match
   both version fields in `server.json`, runs the same smoke test before
   publishing, and creates the GitHub Release with `gh` instead of a
