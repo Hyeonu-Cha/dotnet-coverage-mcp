@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so `dnx`-based installs on a .NET 10-only machine failed at startup.
 - `RunTestsWithCoverage` writes a TRX file (`--logger trx`) and reports
   `Passed / Failed / Skipped` counts on success.
+- Cobertura reports are parsed once and cached by path, write time and size, so
+  repeated `GetFileCoverage` / `GetUncoveredBranches` / `GetCoverageDiff` calls
+  on the same run do not re-read the XML.
 
 ### Fixed
 - `RunTestsWithCoverage` with `filter: "*"` ran zero tests: VSTest has no wildcard,
@@ -66,6 +69,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GetSourceFiles` on a `.csproj` scanned the whole folder, so a test project
   nested under it (a common layout) contributed its test files as targets. A
   project scope now stops at nested projects.
+
+- Async methods could not be found by name: coverlet reports their bodies as
+  `MoveNext` inside a generated `<Name>d__N` class, so `GetUncoveredBranches`
+  returned `noMatch`, `GetFileCoverage` listed them as separate classes, and
+  their class's own rate left their code out. Lambdas (`<>c`,
+  `<>c__DisplayClassN_M`), async lambdas and local functions (`g__`) had the
+  same problem. They are now folded into the method they came from: lines are
+  merged per line number, branches from all parts are counted, overloads stay
+  separate (matched by the compiler's ordinal, labelled `Name (line N)`), and
+  generic arity is shown as in source (`Repo<T>`). `GetCoverageDiff` keys no
+  longer include the state machine's ordinal, so adding a method above an async
+  method no longer shows it as removed and re-added.
 
 ### Added
 - `GetSourceFiles` leaves files that are not test targets out of the batches

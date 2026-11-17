@@ -49,7 +49,7 @@ public class DotnetTestFailureEndToEndTests : IClassFixture<SampleProjectFixture
         using var doc = JsonDocument.Parse(result);
         var root = doc.RootElement;
         root.GetProperty("errorType").GetString().Should().Be("testsFailed", because: result);
-        root.GetProperty("passed").GetInt32().Should().Be(2);
+        root.GetProperty("passed").GetInt32().Should().Be(3);
         root.GetProperty("failed").GetInt32().Should().Be(1);
         var failure = root.GetProperty("failures")[0];
         failure.GetProperty("test").GetString().Should().Be("SampleLib.Tests.FailingTests.Add_DeliberatelyWrong");

@@ -248,7 +248,7 @@ Or point directly at the compiled executable:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `coberturaXmlPath` | string | Yes | Path to `coverage.cobertura.xml` (falls back to `.mcp-coverage/.coverage-state` if not found) |
-| `methodName` | string | Yes | Method name to inspect (partial match supported; returns all matching methods) |
+| `methodName` | string | Yes | Method name as written in source (partial match supported; returns all matching methods). Async methods, lambdas and local functions are reported under the method they belong to; overloads are labelled `Name (line N)`. |
 | `sessionId` | string | No | Resolves session-scoped state file for concurrent isolation. |
 
 ### `GetCoverageDiff`
