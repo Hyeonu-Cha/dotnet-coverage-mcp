@@ -36,7 +36,7 @@ public class DotnetTestMtpEndToEndTests : IClassFixture<SampleProjectMtpFixture>
 
     private async Task<string> Run(string? filter = null)
     {
-        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, filter, skipReport: true);
+        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, filter);
         const string marker = "Cobertura XML at: ";
         result.Should().Contain(marker, because: "the run should succeed; got: {0}", result);
         result.Should().Contain("Passed: ");
@@ -89,7 +89,7 @@ public class DotnetTestMtpEndToEndTests : IClassFixture<SampleProjectMtpFixture>
     [Fact]
     public async Task ClassDotMethodFilter_RunsOnlyThatTest()
     {
-        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, "CalculatorTests.Add_ReturnsSum", skipReport: true);
+        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, "CalculatorTests.Add_ReturnsSum");
 
         result.Should().Contain("Passed: 1, Failed: 0", because: result);
     }
@@ -98,7 +98,7 @@ public class DotnetTestMtpEndToEndTests : IClassFixture<SampleProjectMtpFixture>
     public async Task FilterMatchingNothing_ReturnsNoTestsMatched()
     {
         // MTP exits with 8 (ZeroTests) here.
-        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, "DoesNotExist", skipReport: true);
+        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, "DoesNotExist");
 
         JsonDocument.Parse(result).RootElement.GetProperty("errorType").GetString().Should().Be("noTestsMatched", because: result);
     }
@@ -113,7 +113,7 @@ public class DotnetTestMtpEndToEndTests : IClassFixture<SampleProjectMtpFixture>
             """);
         try
         {
-            var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, skipReport: true);
+            var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath);
 
             using var doc = JsonDocument.Parse(result);
             doc.RootElement.GetProperty("errorType").GetString().Should().Be("testsFailed", because: result);
@@ -142,7 +142,7 @@ public class DotnetTestMtpEndToEndTests : IClassFixture<SampleProjectMtpFixture>
     [Fact]
     public async Task IncludeClass_IsRejectedOnMtp()
     {
-        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, includeClass: "Calculator", skipReport: true);
+        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, includeClass: "Calculator");
 
         JsonDocument.Parse(result).RootElement.GetProperty("errorType").GetString().Should().Be("invalidParameter");
     }

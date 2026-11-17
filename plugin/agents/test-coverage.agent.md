@@ -28,7 +28,6 @@ Before starting, verify the context is a .NET test project:
 
 1. Are there `.csproj` files with NUnit, xUnit, or MSTest references? (`GetTestEnvironment` answers this for a test project)
 2. Is there an existing test file (`.cs`) to append to?
-3. Is `reportgenerator` installed (`dotnet tool list -g`)?
 
 If not a .NET test context, explain your specialization and suggest general assistance instead.
 
@@ -48,7 +47,7 @@ If not a .NET test context, explain your specialization and suggest general assi
 | Tool | Purpose |
 |------|---------|
 | `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` — returns scope and file list |
-| `RunTestsWithCoverage` | Run tests, generate `Summary.json` and `coverage.cobertura.xml` |
+| `RunTestsWithCoverage` | Run tests with coverage; returns pass/fail counts and the `coverage.cobertura.xml` path |
 | `GetCoverageSummary` | Summarise class/method coverage from the Cobertura XML (sorted worst-first) |
 | `GetFileCoverage` | Get coverage for a single source file — returns `allMeetTarget` for file-by-file tracking |
 | `GetUncoveredBranches` | Find uncovered branch conditions for a specific method |
@@ -57,7 +56,7 @@ If not a .NET test context, explain your specialization and suggest general assi
 | `GetTestEnvironment` | Test framework and its attributes, runner, coverage collector, mocking and assertion libraries of a test project; call once before writing tests |
 | `GetCoverageGaps` | Per file in a scope: done, or the fewest methods (with uncovered lines, branches and source) that bring it to the target |
 | `AppendTestCode` | Insert or append C# test code into a test file |
-| `CleanupSession` | Remove `TestResults-*`/`coveragereport-*` artifacts and session state once the goal is met |
+| `CleanupSession` | Remove `TestResults-*` artifacts and session state once the goal is met |
 
 ## Clean DI Patterns
 
@@ -96,7 +95,7 @@ If not a .NET test context, explain your specialization and suggest general assi
 5. After each cycle, call `GetCoverageDiff` to verify improvement
 6. Files listed under `done` by `GetCoverageGaps` are finished; move to the next batch when `filesRemaining` is 0
 7. Stop batch after 3 cycles with no improvement; mark stuck methods as blocked
-8. **Clean up when done** — Once `GetCoverageGaps` reports `filesRemaining: 0` for the scope (or all remaining methods are marked blocked), call `CleanupSession` with the project `workingDir` (and the same `sessionId` you used for `RunTestsWithCoverage`, if any) to remove `TestResults-{hash}/`, `coveragereport-{hash}/`, and session state files. Always run this as the final step — do not leave coverage artifacts behind on disk
+8. **Clean up when done** — Once `GetCoverageGaps` reports `filesRemaining: 0` for the scope (or all remaining methods are marked blocked), call `CleanupSession` with the project `workingDir` (and the same `sessionId` you used for `RunTestsWithCoverage`, if any) to remove `TestResults-{hash}/` and session state files. Always run this as the final step — do not leave coverage artifacts behind on disk
 
 ## Batching Rule (Critical)
 
@@ -106,16 +105,15 @@ If not a .NET test context, explain your specialization and suggest general assi
 
 ## Cleanup Rule
 
-- Coverage artifacts (`TestResults-*`, `coveragereport-*`, `.mcp-coverage` state) are NOT deleted automatically by the tools. The agent is responsible for calling `CleanupSession` as the last action once the coverage goal is met.
+- Coverage artifacts (`TestResults-*`, `.mcp-coverage` state) are NOT deleted automatically by the tools. The agent is responsible for calling `CleanupSession` as the last action once the coverage goal is met.
 - Pass the SAME `sessionId` used during the run so the scoped artifacts are removed. If no `sessionId` was used, call `CleanupSession` with just `workingDir`.
 - Only clean up after confirming the goal is reached — never mid-loop, or you will delete the coverage XML that the next `GetCoverageDiff`/`GetFileCoverage` call depends on.
 
 ## Common Issues
 
-1. If `reportgenerator` is missing, install it before running any coverage tool
-2. If `RunTestsWithCoverage` returns a **build error** after writing tests, use Edit to fix the syntax error in the test file — do NOT use `AppendTestCode` to fix it. If the same test fails 3 times, remove it and move on
-3. If `RunTestsWithCoverage` returns **testsFailed**, an assertion failed: fix the test named in `failures` (message and stack are included). Coverage from the passing tests is still available at `coberturaXmlPath`
-4. If `GetUncoveredBranches` returns no results, try a shorter partial method name
-5. If coverage doesn't improve after writing a test, check that the mock setup matches the branch condition
-6. For complex branches (async, private, static), note them as blocked after reasonable attempts
-7. If tempted to check coverage after one test: resist it. Batch 3–5 tests first
+1. If `RunTestsWithCoverage` returns a **build error** after writing tests, use Edit to fix the syntax error in the test file — do NOT use `AppendTestCode` to fix it. If the same test fails 3 times, remove it and move on
+2. If `RunTestsWithCoverage` returns **testsFailed**, an assertion failed: fix the test named in `failures` (message and stack are included). Coverage from the passing tests is still available at `coberturaXmlPath`
+3. If `GetUncoveredBranches` returns no results, try a shorter partial method name
+4. If coverage doesn't improve after writing a test, check that the mock setup matches the branch condition
+5. For complex branches (async, private, static), note them as blocked after reasonable attempts
+6. If tempted to check coverage after one test: resist it. Batch 3–5 tests first

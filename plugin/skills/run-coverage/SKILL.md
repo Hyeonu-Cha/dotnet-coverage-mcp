@@ -31,40 +31,27 @@ Run a .NET test project with code coverage enabled and display a structured summ
 
 ## Workflow
 
-### Step 1: Verify prerequisites
-Check that the `reportgenerator` global tool is installed:
-```bash
-dotnet tool list -g | grep reportgenerator
-```
-If missing, install it:
-```bash
-dotnet tool install -g dotnet-reportgenerator-globaltool
-```
-
-### Step 2: Run tests with coverage
+### Step 1: Run tests with coverage
 Call `RunTestsWithCoverage` with the provided `testProjectPath` and `filter`.
 
 Pass `includeClass` only when coverage should be scoped to a single class (e.g. the specific class under test). Leave it unset for broad filters that span multiple classes — otherwise coverage numbers will be artificially zeroed for classes outside the include pattern.
 
-The tool returns paths to:
-- `Summary.json` — AI-optimized coverage summary
-- `coverage.cobertura.xml` — detailed Cobertura XML report
+The tool returns the path to `coverage.cobertura.xml`, the report every other coverage tool reads.
 
-### Step 3: Get coverage summary
-Call `GetCoverageSummary` with the `coberturaXmlPath` returned from Step 2. (It reads the
-Cobertura XML directly, so it also works when the run used `skipReport: true`.)
+### Step 2: Get coverage summary
+Call `GetCoverageSummary` with the `coberturaXmlPath` returned from Step 1.
 
 Returns a JSON array sorted by branch coverage (lowest first) with:
 - Class name
 - `lineCoverage` and `branchCoverage` (0.0–1.0)
 - `methods` array sorted by branch coverage ascending
 
-### Step 4: Check per-file coverage (optional)
+### Step 3: Check per-file coverage (optional)
 If a broad filter was used, call `GetFileCoverage` for specific source files to check if they meet the 80% target.
 
 Returns `allMeetTarget: true/false` per file — useful for deciding which files need work.
 
-### Step 5: Present results
+### Step 4: Present results
 Display coverage as a table. Highlight any class or method below 80% line or branch coverage.
 
 Example format:
@@ -87,6 +74,5 @@ Class: MyService
 | Pitfall | Solution |
 |---------|----------|
 | `missingExtension` error | The project runs on Microsoft.Testing.Platform and lacks the extension named in the message (usually `Microsoft.Testing.Extensions.CodeCoverage`); add that package and set `forceRestore: true` on the next run |
-| `reportgenerator` not found | Install via `dotnet tool install -g dotnet-reportgenerator-globaltool` |
 | `noTestsMatched` error | The filter selected nothing: omit it to run every test, or use a shorter name |
 | Cobertura XML not found | Check the `coverage.cobertura.xml` path returned by `RunTestsWithCoverage`; ensure tests ran successfully |

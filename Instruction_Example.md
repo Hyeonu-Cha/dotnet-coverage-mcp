@@ -14,13 +14,12 @@ Resolve all variables before running any tool. Do not proceed until each value i
 
 ## Step 0: Discover Scope & Build Batches
 
-1. **Tooling Check:** Run `dotnet tool list -g`. If `reportgenerator` does not appear, install it: `dotnet tool install -g dotnet-reportgenerator-globaltool`.
-2. **Scope Discovery:** Call `GetSourceFiles` with:
+1. **Scope Discovery:** Call `GetSourceFiles` with:
    - `path` → `SOURCE_PATH` (for a single file), a folder path (for a directory), or a `.csproj` path (for a project)
    - `lineBudget` → `300` (default; adjust if context is limited)
 
    This returns file metadata (lines, method count) and smart batches. Small files are grouped together; large files get their own batch.
-3. **Pick a batch:** Start with batch 0. You will work through each batch sequentially.
+2. **Pick a batch:** Start with batch 0. You will work through each batch sequentially.
 
 ## Step 1: Infrastructure & DI Setup (per batch)
 
@@ -48,7 +47,7 @@ Call `RunTestsWithCoverage`:
 - `filter` → omit it to run every test (or pass the test namespace) so one test run covers all files in the batch
 - `forceRestore` → `true` on the first run after scaffolding; omit otherwise
 
-This returns both the `Summary.json` path and the `coverage.cobertura.xml` path. One test run covers the entire batch.
+This returns the `coverage.cobertura.xml` path. One test run covers the entire batch.
 
 ### 2. Check Per-File Coverage
 

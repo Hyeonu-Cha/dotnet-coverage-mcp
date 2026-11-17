@@ -45,7 +45,7 @@ public class CoverageTools
     // --- 1. RunTestsWithCoverage ---
 
     [McpServerTool(Title = "Run tests with coverage", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = true)]
-    [Description("Run `dotnet test` with code coverage and generate a JSON summary. Returns pass/fail/skip counts and paths to Summary.json and the Cobertura XML. Uses coverlet (XPlat Code Coverage) on VSTest, or Microsoft's CodeCoverage extension when the repository's global.json selects Microsoft.Testing.Platform.")]
+    [Description("Run `dotnet test` with code coverage. Returns pass/fail/skip counts and the path to the Cobertura XML that the other coverage tools read. Uses coverlet (XPlat Code Coverage) on VSTest, or Microsoft's CodeCoverage extension when the repository's global.json selects Microsoft.Testing.Platform.")]
     public async Task<string> RunTestsWithCoverage(
         [Description("Absolute path to the .csproj test project. Must be inside COVERAGE_MCP_ALLOWED_ROOT when that environment variable is set.")]
         string testProjectPath,
@@ -55,12 +55,10 @@ public class CoverageTools
         string? workingDir = null,
         [Description("When true, omits --no-restore. Set after scaffolding a new test project or adding NuGet references; otherwise leave false for faster runs.")]
         bool forceRestore = false,
-        [Description("Optional opaque token (any string) used to isolate output artifacts (TestResults-{hash}/, coveragereport-{hash}/) so concurrent agents don't trample each other. Omit for single-agent use.")]
+        [Description("Optional opaque token (any string) used to isolate output artifacts (TestResults-{hash}/ and the coverage state) so concurrent agents don't trample each other. Omit for single-agent use.")]
         string? sessionId = null,
         [Description("Optional class-name pattern, VSTest/coverlet only, that restricts coverage collection to types matching this name (coverlet Include filter, e.g. 'OrderService' or 'Order*'), applied via a generated runsettings file. Independent of `filter`; omit to collect coverage for everything the run touches. Namespace-qualified names are not supported.")]
         string? includeClass = null,
-        [Description("When true, skips the reportgenerator JSON summary step and returns only the Cobertura XML path. Faster for the inner test loop, where per-file tools (GetFileCoverage/GetUncoveredBranches/GetCoverageDiff) read the XML directly. Leave false when you need GetCoverageSummary's Summary.json.")]
-        bool skipReport = false,
         // Bound by the SDK, not part of the tool schema: forwards progress notifications when
         // the client sent a progress token, so a long build/test run doesn't look hung.
         IProgress<ProgressNotificationValue>? progress = null,
@@ -72,7 +70,8 @@ public class CoverageTools
         // Resolve to a rooted path before anything else uses it. `dotnet test` takes the project
         // as its first positional argument, so a raw value like "--help" or "-bl:evil.binlog"
         // would be parsed as a CLI/MSBuild option (and could run arbitrary build logic or write
-        // files anywhere); a rooted path never is. A non-.csproj value is rejected up front.
+        // files anywhere). Rooting handles the "-" forms; the existence check below handles
+        // Unix, where "/p:X=y.csproj" is already rooted and dotnet still reads it as a switch.
         string resolvedProjectPath;
         try { resolvedProjectPath = Path.GetFullPath(testProjectPath); }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
@@ -93,6 +92,9 @@ public class CoverageTools
             return JsonHelper.Error("pathNotAllowed", ex.Message);
         }
 
+        if (!File.Exists(testProjectPath))
+            return JsonHelper.Error("fileNotFound", $"Test project not found: {testProjectPath}");
+
         workingDir ??= Path.GetDirectoryName(testProjectPath) ?? Directory.GetCurrentDirectory();
 
         // includeClass is a coverlet runsettings filter; Microsoft's extension used under MTP
@@ -103,10 +105,8 @@ public class CoverageTools
 
         var suffix = _sessionManager.ComputeSuffix(sessionId);
         var resultsDir = Path.Combine(workingDir, $"TestResults{suffix}");
-        var reportDir = Path.Combine(workingDir, $"coveragereport{suffix}");
 
         _fileService.SafeDelete(resultsDir);
-        _fileService.SafeDelete(reportDir);
 
         var steps = progress == null ? null : new StepProgress(progress);
         steps?.Report($"Starting dotnet test for {Path.GetFileName(testProjectPath)}");
@@ -170,30 +170,7 @@ public class CoverageTools
             ? $" Passed: {sum.Passed}, Failed: {sum.Failed}, Skipped: {sum.Skipped}."
             : "";
 
-        if (skipReport)
-            return $"Tests completed (report skipped).{counts}\nCobertura XML at: {testResult.CoverageXmlPath}";
-
-        ReportResult reportResult;
-        try
-        {
-            steps?.Report("Generating coverage summary");
-            reportResult = await _processRunner.RunReportGeneratorAsync(
-                testResult.CoverageXmlPath, reportDir, workingDir, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            return JsonHelper.Error("reportFailed",
-                $"Could not launch reportgenerator: {ex.Message}\nCobertura XML is still available at: {testResult.CoverageXmlPath}");
-        }
-
-        if (!reportResult.Success)
-        {
-            return reportResult.ErrorDetail?.Contains("timed out") == true
-                ? JsonHelper.Error("timeout", $"{reportResult.ErrorDetail}. Cobertura XML is still available at: {testResult.CoverageXmlPath}")
-                : JsonHelper.Error("reportFailed", $"{reportResult.ErrorDetail}\n{Tail(testResult.Output)}");
-        }
-
-        return $"Tests completed.{counts}\nCoverage JSON at: {reportResult.SummaryPath}\nCobertura XML at: {testResult.CoverageXmlPath}";
+        return $"Tests completed.{counts}\nCobertura XML at: {testResult.CoverageXmlPath}";
     }
 
     // --- 2. GetCoverageSummary ---
@@ -301,8 +278,8 @@ public class CoverageTools
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
 
         // Only C# source files. Without this the string fallback would happily append "test
-        // code" into any existing file the path points at — settings.json, a .csv, a prod
-        // source file — corrupting it and reporting success.
+        // code" into any existing file the path points at (settings.json, a .csv), corrupting
+        // it and reporting success. Which .cs file is a test file is still the caller's call.
         if (!testFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
             return JsonHelper.Error("invalidParameter", "testFilePath must be a .cs file.");
 
@@ -621,11 +598,13 @@ public class CoverageTools
     // Recursive .cs enumeration that does not descend into or return reparse points
     // (symlinks/junctions). A link inside the scope that points outside it would otherwise pull
     // foreign files into the batch — and, for a .cs link to a secret file, into GetCoverageGaps'
-    // source snippets. Keeps the default Hidden|System skip of the simple GetFiles overload.
+    // source snippets. Hidden and system entries are still scanned, as with the
+    // SearchOption.AllDirectories overload this replaced (on Linux/macOS every dot-folder is
+    // "hidden"). An unreadable subfolder is skipped instead of failing the whole scan.
     private static readonly EnumerationOptions NoFollowLinks = new()
     {
         RecurseSubdirectories = true,
-        AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System,
+        AttributesToSkip = FileAttributes.ReparsePoint,
         IgnoreInaccessible = true,
     };
 

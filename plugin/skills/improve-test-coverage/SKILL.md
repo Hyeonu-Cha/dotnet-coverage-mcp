@@ -31,8 +31,7 @@ Autonomously run tests, identify coverage gaps, write targeted unit tests, and r
 ## Workflow
 
 ### Step 0: Setup and discover scope
-1. Verify `reportgenerator` is installed (`dotnet tool list -g`); install if missing
-2. Call `GetSourceFiles` with `sourcePath` and `lineBudget` to get:
+1. Call `GetSourceFiles` with `sourcePath` and `lineBudget` to get:
    - `batches` — files grouped by line budget (small files together, large files solo), each file carrying its `lines` and `methodCount` metadata
    - `batchCount` — how many cycles to expect
    - `excluded` — files that are **not** targets: entry points (`Program.cs`), DI registration, generated code, data-only models, and test projects. Do not write tests for them and do not count them toward the 80% goal. If the user insists on one of them, pass it to `GetSourceFiles` by path; named files are always kept
@@ -110,7 +109,7 @@ If `RunTestsWithCoverage` returns `errorType: "testsFailed"`, the build succeede
 If it returns `errorType: "noTestsMatched"`, the `filter` selected nothing. Omit it to run every test, or use a shorter name.
 
 ### Step 5: Re-run and check batch-level progress
-Call `RunTestsWithCoverage` **once** with the same broad filter (`skipReport: true` is fine inside the loop).
+Call `RunTestsWithCoverage` **once** with the same broad filter.
 Call `GetCoverageGaps` again for the batch, and `GetCoverageDiff` to see method-level deltas.
 
 ### Step 6: Repeat or advance
