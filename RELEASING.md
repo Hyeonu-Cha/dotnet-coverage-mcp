@@ -6,8 +6,18 @@ Releases are automated via `.github/workflows/release.yml`, which fires on any `
 
 ## One-time setup
 
-1. Generate a NuGet API key at <https://www.nuget.org/account/apikeys>.
-2. Add it as repo secret `NUGET_API_KEY` (Settings → Secrets and variables → Actions).
+Publishing uses [NuGet Trusted Publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing), so there is no API key to create, store or renew. The workflow trades its GitHub OIDC token for a short-lived key at release time.
+
+The one requirement is a Trusted Publishing policy on nuget.org (account `ericcha901` → Trusted Publishing):
+
+| Field | Value |
+|---|---|
+| Repository Owner | `Hyeonu-Cha` |
+| Repository | `dotnet-coverage-mcp` |
+| Workflow File | `release.yml` |
+| Environment | *(empty; the workflow uses none)* |
+
+Renaming the workflow file or the repository, or adding an `environment:` to the job, needs a matching change to the policy, or the `NuGet login` step fails.
 
 ## Cutting a release
 
