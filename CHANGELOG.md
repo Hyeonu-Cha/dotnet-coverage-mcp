@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-11-18
+
+2.0.0 was tagged but never published to NuGet; 2.0.1 is the first 2.x release there.
+Upgrading from 1.x, read the 2.0.0 notes below as well.
+
 ### Removed
 - **`reportgenerator` is no longer needed.** `RunTestsWithCoverage` used to run it
   after every passing test run to write a `Summary.json` that only
