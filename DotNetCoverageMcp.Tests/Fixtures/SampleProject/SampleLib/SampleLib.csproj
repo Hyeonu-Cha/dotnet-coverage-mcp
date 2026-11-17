@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Fixture for the end-to-end tests in Integration/DotnetTestEndToEndTests.cs.
+       Not part of DotNetCoverageMcp.slnx: it is copied to a temp directory and
+       built there by the tests themselves. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

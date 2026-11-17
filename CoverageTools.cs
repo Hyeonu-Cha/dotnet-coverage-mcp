@@ -46,8 +46,8 @@ public class CoverageTools
     public async Task<string> RunTestsWithCoverage(
         [Description("Absolute path to the .csproj test project. Must be inside COVERAGE_MCP_ALLOWED_ROOT when that environment variable is set.")]
         string testProjectPath,
-        [Description("Test filter matched against FullyQualifiedName. Pass a class or method name (e.g. 'OrderServiceTests' or 'OrderServiceTests.PlacesOrder'); '*' runs everything. Do not pass full VSTest filter expressions like 'Category=Unit'.")]
-        string filter,
+        [Description("Optional test filter, passed to `dotnet test --filter`. A plain name matches any test whose fully qualified name contains it (e.g. 'OrderServiceTests' or 'OrderServiceTests.PlacesOrder'). Full VSTest expressions also work ('OrderTests|PaymentTests', 'Category=Unit'). Omit, or pass '*', to run every test in the project.")]
+        string? filter = null,
         [Description("Working directory for the dotnet test invocation. Defaults to the test project's directory when omitted.")]
         string? workingDir = null,
         [Description("When true, omits --no-restore. Set after scaffolding a new test project or adding NuGet references; otherwise leave false for faster runs.")]
@@ -62,8 +62,6 @@ public class CoverageTools
     {
         if (string.IsNullOrWhiteSpace(testProjectPath))
             return JsonHelper.Error("invalidParameter", "testProjectPath must not be empty.");
-        if (string.IsNullOrWhiteSpace(filter))
-            return JsonHelper.Error("invalidParameter", "filter must not be empty.");
 
         try
         {
@@ -99,7 +97,9 @@ public class CoverageTools
         if (testResult.CoverageXmlPath == null)
             return JsonHelper.Error("noCoverage", "No coverage XML found.\n" + Tail(testResult.Output));
 
-        _sessionManager.SaveCoverageState(workingDir, testResult.CoverageXmlPath, filter, sessionId);
+        // The filter keys a state file; "run all" gets one stable key however it was spelled.
+        var stateKey = ProcessRunner.RunsAllTests(filter) ? "*" : filter!;
+        _sessionManager.SaveCoverageState(workingDir, testResult.CoverageXmlPath, stateKey, sessionId);
 
         if (skipReport)
             return $"Tests completed (report skipped).\nCobertura XML at: {testResult.CoverageXmlPath}";

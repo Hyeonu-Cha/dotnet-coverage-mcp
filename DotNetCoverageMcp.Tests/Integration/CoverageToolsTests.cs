@@ -39,11 +39,21 @@ public class CoverageToolsTests
         AssertError(result, "invalidParameter");
     }
 
-    [Fact]
-    public async Task RunTestsWithCoverage_EmptyFilter_ReturnsError()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("*")]
+    public async Task RunTestsWithCoverage_NoFilter_RunsAllAndKeysStateAsStar(string? filter)
     {
-        var result = await _sut.RunTestsWithCoverage("project.csproj", "");
-        AssertError(result, "invalidParameter");
+        _processRunner.Setup(p => p.RunDotnetTestAsync(
+            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "", "", 0, "/coverage.xml"));
+
+        var result = await _sut.RunTestsWithCoverage("proj.csproj", filter, "/dir", skipReport: true);
+
+        result.Should().Contain("coverage.xml");
+        _sessionManager.Verify(s => s.SaveCoverageState("/dir", "/coverage.xml", "*", null), Times.Once);
     }
 
     [Fact]
