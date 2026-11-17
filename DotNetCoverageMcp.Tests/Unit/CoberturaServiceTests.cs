@@ -236,7 +236,9 @@ public class CoberturaServiceTests : IDisposable
             </classes></package></packages></coverage>
             """);
 
-        _sut.GetFileCoverage(path, "Foo.cs", 0.8).Classes.Should().HaveCount(2);
+        // The state machine is folded into App.Foo, so this is one class with method "Run".
+        var result = _sut.GetFileCoverage(path, "Foo.cs", 0.8);
+        result.Classes.Should().ContainSingle().Which.Class.Should().Be("App.Foo");
     }
 
     // --- GetUncoveredBranches ---

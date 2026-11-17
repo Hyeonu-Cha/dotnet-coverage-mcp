@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -105,15 +106,35 @@ public class CoberturaService : ICoberturaService
         return result;
     }
 
+    // Parsed reports keyed by full path. An agent's loop queries the same report many times
+    // (one GetFileCoverage per file, then GetUncoveredBranches per method); parsing a large
+    // report once per run instead of once per call is the difference that matters.
+    private readonly ConcurrentDictionary<string, (DateTime WriteTime, long Length, CoverageModel Model)> _cache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private const int MaxCachedReports = 8;
+
+    internal CoverageModel Load(string coberturaXmlPath)
+    {
+        var info = new FileInfo(coberturaXmlPath);
+        if (_cache.TryGetValue(info.FullName, out var hit)
+            && hit.WriteTime == info.LastWriteTimeUtc && hit.Length == info.Length)
+            return hit.Model;
+
+        var model = CoverageModel.Parse(XDocument.Load(coberturaXmlPath));
+        // ponytail: clear-all eviction; a run's working set is two reports (current + baseline).
+        if (_cache.Count >= MaxCachedReports) _cache.Clear();
+        _cache[info.FullName] = (info.LastWriteTimeUtc, info.Length, model);
+        return model;
+    }
+
     public FileCoverageResult GetFileCoverage(string coberturaXmlPath, string sourceFileName, double targetRate)
     {
-        var doc = XDocument.Load(coberturaXmlPath);
-        var sourceRoots = doc.Descendants("source").Select(s => NormalizePath(s.Value)).Where(s => s.Length > 0).ToList();
+        var model = Load(coberturaXmlPath);
+        var sourceRoots = model.SourceRoots;
         var requested = NormalizePath(sourceFileName);
 
-        var candidates = doc.Descendants("class")
-            .Select(c => (Element: c, File: NormalizePath(c.Attribute("filename")?.Value ?? "")))
-            .Where(c => PathMatches(c.File, requested, sourceRoots))
+        var candidates = model.Classes
+            .Where(c => PathMatches(NormalizePath(c.File), requested, sourceRoots))
             .ToList();
 
         if (candidates.Count == 0)
@@ -122,7 +143,7 @@ public class CoberturaService : ICoberturaService
         // A bare name like "OrderController.cs" can match the same name in several folders.
         // Merging them would report one file's coverage as another's, so ask the caller to
         // choose unless exactly one candidate is the path they gave.
-        var files = candidates.Select(c => c.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var files = candidates.Select(c => NormalizePath(c.File)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (files.Count > 1)
         {
             var exact = files.Where(f => IsExactMatch(f, requested, sourceRoots)).ToList();
@@ -130,37 +151,23 @@ public class CoberturaService : ICoberturaService
                 throw new AmbiguousFileException(
                     $"'{sourceFileName}' matches {files.Count} files in the coverage report. Pass a longer path to pick one.",
                     files);
-            candidates = candidates.Where(c => string.Equals(c.File, exact[0], StringComparison.OrdinalIgnoreCase)).ToList();
+            candidates = candidates.Where(c => string.Equals(NormalizePath(c.File), exact[0], StringComparison.OrdinalIgnoreCase)).ToList();
             files = exact;
         }
 
-        var matchedClasses = candidates.Select(c => c.Element).ToList();
+        var classes = candidates.Select(c => new FileCoverageClass(
+                c.Name,
+                Math.Round(c.LineRate, 4),
+                Math.Round(c.BranchRate, 4),
+                c.LineRate >= targetRate && c.BranchRate >= targetRate,
+                c.Methods
+                    .Select(m => new FileCoverageMethod(m.Name, Math.Round(m.LineRate, 4), Math.Round(m.BranchRate, 4)))
+                    .OrderBy(m => m.BranchRate)
+                    .ToList()))
+            .ToList();
+
         // Report the path that matched, so the caller sees which file the numbers are for.
-        var matchedFile = files[0];
-
-        var classes = new List<FileCoverageClass>();
-        var allMeetTarget = true;
-
-        foreach (var cls in matchedClasses)
-        {
-            var className = cls.Attribute("name")?.Value ?? "";
-            var lineRate = double.TryParse(cls.Attribute("line-rate")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var lr) ? lr : 0;
-            var branchRate = double.TryParse(cls.Attribute("branch-rate")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var br) ? br : 0;
-            var meetsTarget = lineRate >= targetRate && branchRate >= targetRate;
-            if (!meetsTarget) allMeetTarget = false;
-
-            var methods = cls.Descendants("method")
-                .Select(m => new FileCoverageMethod(
-                    Name: m.Attribute("name")?.Value ?? "",
-                    LineRate: double.TryParse(m.Attribute("line-rate")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var mlr) ? Math.Round(mlr, 4) : 0,
-                    BranchRate: double.TryParse(m.Attribute("branch-rate")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var mbr) ? Math.Round(mbr, 4) : 0))
-                .OrderBy(m => m.BranchRate)
-                .ToList();
-
-            classes.Add(new FileCoverageClass(className, Math.Round(lineRate, 4), Math.Round(branchRate, 4), meetsTarget, methods));
-        }
-
-        return new FileCoverageResult(matchedFile, allMeetTarget, classes);
+        return new FileCoverageResult(files[0], classes.All(c => c.MeetsTarget), classes);
     }
 
     internal static string NormalizePath(string path) => path.Trim().Replace('\\', '/').TrimEnd('/');
@@ -199,104 +206,79 @@ public class CoberturaService : ICoberturaService
 
     public UncoveredBranchesResult GetUncoveredBranches(string coberturaXmlPath, string methodName)
     {
-        var doc = XDocument.Load(coberturaXmlPath);
-
-        var matchedMethods = doc.Descendants("method")
-            .Where(m => m.Attribute("name")?.Value?.Contains(methodName, StringComparison.OrdinalIgnoreCase) == true)
+        // Method names here are the folded ones, so an async method is found by its own name
+        // rather than as a MoveNext inside a <Name>d__N class.
+        var matched = Load(coberturaXmlPath).Classes
+            .SelectMany(c => c.Methods.Select(m => (Class: c, Method: m)))
+            .Where(x => x.Method.Name.Contains(methodName, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        if (matchedMethods.Count == 0)
+        if (matched.Count == 0)
             throw new KeyNotFoundException($"No method matching '{methodName}' found in coverage report.");
 
-        var results = matchedMethods.Select(method =>
-        {
-            var methodFullName = method.Attribute("name")?.Value ?? methodName;
-            var className = method.Parent?.Parent?.Attribute("name")?.Value ?? "";
+        var results = matched
+            .Select(x => new UncoveredMethod(
+                x.Method.Name,
+                x.Class.Name,
+                x.Method.Lines
+                    .Where(l => l.Missing.Count > 0)
+                    .Select(l => new UncoveredBranch(l.Number, l.Missing.ToList()))
+                    .ToList()))
+            // Drop methods whose partial name matched but have no uncovered branches — pure
+            // noise — and cap the rest so a broad match can't blow up the response.
+            .Where(m => m.UncoveredBranches.Count > 0)
+            .Take(MaxUncoveredMethods)
+            .ToList();
 
-            var uncoveredBranches = method.Descendants("line")
-                .Where(l => l.Attribute("branch")?.Value == "True")
-                .Select(l => new UncoveredBranch(
-                    Line: int.TryParse(l.Attribute("number")?.Value, out var n) ? n : 0,
-                    Missing: l.Descendants("condition")
-                        .Where(c => c.Attribute("coverage")?.Value == "0%")
-                        .Select(c => $"condition {c.Attribute("number")?.Value} ({c.Attribute("type")?.Value})")
-                        .ToList()))
-                .Where(b => b.Missing.Count > 0)
-                .ToList();
-
-            return new UncoveredMethod(methodFullName, className, uncoveredBranches);
-        })
-        // Drop methods whose partial name matched but have no uncovered branches — pure
-        // noise — and cap the rest so a broad match can't blow up the response.
-        .Where(m => m.UncoveredBranches.Count > 0)
-        .Take(MaxUncoveredMethods)
-        .ToList();
-
-        return new UncoveredBranchesResult(matchedMethods.Count, results);
+        return new UncoveredBranchesResult(matched.Count, results);
     }
 
     public DiffResult ComputeDiff(string currentXmlPath, string baselinePath)
     {
-        var currentDoc = XDocument.Load(currentXmlPath);
-        var prevDoc = XDocument.Load(baselinePath);
+        var current = Load(currentXmlPath);
+        var previous = Load(baselinePath);
 
-        double ParseRate(XDocument d, string attr) =>
-            double.TryParse(d.Root?.Attribute(attr)?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : 0;
-
-        var prevLineRate = ParseRate(prevDoc, "line-rate");
-        var prevBranchRate = ParseRate(prevDoc, "branch-rate");
-        var curLineRate = ParseRate(currentDoc, "line-rate");
-        var curBranchRate = ParseRate(currentDoc, "branch-rate");
-
-        string MethodKey(XElement m) =>
-            $"{m.Parent?.Parent?.Attribute("name")?.Value}.{m.Attribute("name")?.Value}({m.Attribute("signature")?.Value})";
-
-        var prevMethods = new Dictionary<string, (double LineRate, double BranchRate)>();
-        foreach (var m in prevDoc.Descendants("method"))
+        static Dictionary<string, MethodCov> ByKey(CoverageModel model)
         {
-            var key = MethodKey(m);
-            prevMethods.TryAdd(key, (
-                double.TryParse(m.Attribute("line-rate")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var lr) ? lr : 0,
-                double.TryParse(m.Attribute("branch-rate")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var br) ? br : 0));
+            var map = new Dictionary<string, MethodCov>();
+            foreach (var m in model.Classes.SelectMany(c => c.Methods))
+                map.TryAdd(m.DiffKey, m);
+            return map;
         }
+
+        var prevMethods = ByKey(previous);
+        var curMethods = ByKey(current);
 
         var changedMethods = new List<MethodDiff>();
         var unchangedCount = 0;
-        var seenKeys = new HashSet<string>();
 
-        foreach (var method in currentDoc.Descendants("method"))
+        foreach (var (key, cur) in curMethods)
         {
-            var key = MethodKey(method);
-            if (!seenKeys.Add(key)) continue;
-
-            var name = method.Attribute("name")?.Value ?? key;
-            var curLine = double.TryParse(method.Attribute("line-rate")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var cl) ? cl : 0;
-            var curBranch = double.TryParse(method.Attribute("branch-rate")?.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var cb) ? cb : 0;
-
             if (prevMethods.TryGetValue(key, out var prev))
             {
-                if (Math.Abs(curLine - prev.LineRate) > 0.001 || Math.Abs(curBranch - prev.BranchRate) > 0.001)
-                    changedMethods.Add(new MethodDiff(name, Math.Round(prev.LineRate, 4), Math.Round(curLine, 4), Math.Round(prev.BranchRate, 4), Math.Round(curBranch, 4)));
+                if (Math.Abs(cur.LineRate - prev.LineRate) > 0.001 || Math.Abs(cur.BranchRate - prev.BranchRate) > 0.001)
+                    changedMethods.Add(new MethodDiff(cur.Name, Math.Round(prev.LineRate, 4), Math.Round(cur.LineRate, 4),
+                        Math.Round(prev.BranchRate, 4), Math.Round(cur.BranchRate, 4)));
                 else
                     unchangedCount++;
             }
             else
             {
-                changedMethods.Add(new MethodDiff(name, 0.0, Math.Round(curLine, 4), 0.0, Math.Round(curBranch, 4)));
+                changedMethods.Add(new MethodDiff(cur.Name, 0.0, Math.Round(cur.LineRate, 4), 0.0, Math.Round(cur.BranchRate, 4)));
             }
         }
 
-        var removedMethods = prevMethods.Keys
-            .Where(k => !seenKeys.Contains(k))
-            .Select(k => new MethodDiff(k, Math.Round(prevMethods[k].LineRate, 4), 0.0, Math.Round(prevMethods[k].BranchRate, 4), 0.0))
+        var removedMethods = prevMethods
+            .Where(kv => !curMethods.ContainsKey(kv.Key))
+            .Select(kv => new MethodDiff(kv.Value.Name, Math.Round(kv.Value.LineRate, 4), 0.0, Math.Round(kv.Value.BranchRate, 4), 0.0))
             .ToList();
 
         return new DiffResult(
             FirstRun: false,
-            CycleImprovement: new DiffDelta(Math.Round(curLineRate - prevLineRate, 4), Math.Round(curBranchRate - prevBranchRate, 4)),
+            CycleImprovement: new DiffDelta(Math.Round(current.LineRate - previous.LineRate, 4),
+                Math.Round(current.BranchRate - previous.BranchRate, 4)),
             ChangedMethods: changedMethods,
             RemovedMethods: removedMethods,
             UnchangedCount: unchangedCount);
     }
-
 }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Xml.Linq;
 using DotNetCoverageMcp.Services;
 using FluentAssertions;
@@ -68,14 +69,39 @@ public class DotnetTestEndToEndTests : IClassFixture<SampleProjectFixture>
         MethodLineRate(xml, "Classify").Should().BeGreaterThan(0.0);
     }
 
-    private async Task<XDocument> RunAndGetCoverageXml(string? filter)
+    [Fact]
+    public async Task CoverageTools_SeeAsyncMethodsLambdasAndLocalFunctionsByTheirOwnNames()
+    {
+        // Real coverlet output for Calculator: async bodies in <X>d__N classes, a local
+        // function as <Twice>g__Double|N_0. All of it must surface under the source names.
+        var xmlPath = await RunAndGetCoverageXmlPath(null);
+
+        using var file = JsonDocument.Parse(_sut.GetFileCoverage(xmlPath, "Calculator.cs"));
+        var classes = file.RootElement.GetProperty("classes");
+        classes.GetArrayLength().Should().Be(1, "state machines are folded into Calculator");
+        classes[0].GetProperty("class").GetString().Should().Be("SampleLib.Calculator");
+        var methods = classes[0].GetProperty("methods").EnumerateArray()
+            .Select(m => m.GetProperty("name").GetString()!).ToList();
+        methods.Should().Contain(["AddAsync", "Twice", "CountPositive", "SumAbove"]);
+        methods.Count(m => m.StartsWith("DescribeAsync (line ", StringComparison.Ordinal)).Should().Be(2);
+        methods.Should().NotContain(m => m.Contains('<') || m == "MoveNext");
+
+        // Before folding this was a noMatch error: the report has no method named AddAsync.
+        using var branches = JsonDocument.Parse(_sut.GetUncoveredBranches(xmlPath, "AddAsync"));
+        branches.RootElement.TryGetProperty("errorType", out _).Should().BeFalse(because: branches.RootElement.ToString());
+        branches.RootElement.GetProperty("matchCount").GetInt32().Should().Be(1);
+    }
+
+    private async Task<XDocument> RunAndGetCoverageXml(string? filter) =>
+        XDocument.Load(await RunAndGetCoverageXmlPath(filter));
+
+    private async Task<string> RunAndGetCoverageXmlPath(string? filter)
     {
         var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, filter, skipReport: true);
 
         const string marker = "Cobertura XML at: ";
         result.Should().Contain(marker, because: "the run should succeed; got: {0}", result);
-        var path = result[(result.IndexOf(marker, StringComparison.Ordinal) + marker.Length)..].Trim();
-        return XDocument.Load(path);
+        return result[(result.IndexOf(marker, StringComparison.Ordinal) + marker.Length)..].Trim();
     }
 
     private static double MethodLineRate(XDocument xml, string method) =>
