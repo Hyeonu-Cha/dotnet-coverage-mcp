@@ -32,7 +32,7 @@ public class FileService : IFileService
         try
         {
             File.WriteAllText(tempPath, content);
-            File.Move(tempPath, targetPath, overwrite: true);
+            ReplaceWithRetry(tempPath, targetPath);
         }
         catch
         {
@@ -52,12 +52,40 @@ public class FileService : IFileService
         try
         {
             File.Copy(sourcePath, tempPath, overwrite: true);
-            File.Move(tempPath, targetPath, overwrite: true);
+            ReplaceWithRetry(tempPath, targetPath);
         }
         catch
         {
             try { File.Delete(tempPath); } catch { }
             throw;
+        }
+    }
+
+    // 10 + 20 + 40 + 80 + 160 ms: long enough to outlast a virus scan or indexer of a small
+    // file, short enough that a target locked for good still fails quickly.
+    private const int ReplaceAttempts = 6;
+
+    /// <summary>
+    /// Moves the temp file over the target. On Windows, replacing a file that another process
+    /// has open without delete-sharing fails with "Access to the path is denied" or a sharing
+    /// violation; antivirus and the search indexer do exactly that for a few milliseconds after
+    /// each write, so a write right after the previous one could fail intermittently.
+    /// </summary>
+    private static void ReplaceWithRetry(string tempPath, string targetPath)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(tempPath, targetPath, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (attempt < ReplaceAttempts
+                                       && ex is UnauthorizedAccessException or IOException
+                                       && ex is not FileNotFoundException and not DirectoryNotFoundException)
+            {
+                Thread.Sleep(10 << (attempt - 1));
+            }
         }
     }
 
