@@ -68,3 +68,15 @@ public class SampleProjectFixture : IDisposable
         try { Directory.Delete(Root, recursive: true); } catch { /* best-effort temp cleanup */ }
     }
 }
+
+/// <summary>Reports on the calling thread, so a test sees every report before the call returns.</summary>
+public sealed class SyncProgress(Action<ModelContextProtocol.ProgressNotificationValue> onReport)
+    : IProgress<ModelContextProtocol.ProgressNotificationValue>
+{
+    public void Report(ModelContextProtocol.ProgressNotificationValue value) => onReport(value);
+}
+
+public sealed class SyncStringProgress(Action<string> onReport) : IProgress<string>
+{
+    public void Report(string value) => onReport(value);
+}
