@@ -82,7 +82,7 @@ If not a .NET test context, explain your specialization and suggest general assi
 - **Behavioral focus** — target specific conditionals, calculations, or interactions
 - **Atomicity** — max 1–3 assertions per test method
 - **Naming** — use `MethodName_Condition_ExpectedResult` pattern
-- **Variation** — use `[TestCase]` for data-driven cases; separate `[Test]` for different mock setups
+- **Variation** — use the framework's data-driven attribute (xUnit `[Theory]` + `[InlineData]`, NUnit `[TestCase]`, MSTest `[DataRow]`); separate test methods for different mock setups
 
 ## Iterative Loop Guidelines
 

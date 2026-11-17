@@ -40,8 +40,9 @@ CLI) per the README's MCP Client Configuration section.
 
 ## Pull Request Guidelines
 
-1. **Branch from `main`**. Use a descriptive branch name (e.g.
-   `fix/cobertura-parse-edge-case`, `improvement/session-cleanup`).
+1. **Branch from `main`**. Name the branch `<type>/<kebab-case-summary>`, where
+   type is one of `bugfix`, `improvement`, `docs`, `ci` or `chore` (e.g.
+   `bugfix/cobertura-parse-edge-case`, `improvement/session-cleanup`).
 2. **Keep PRs focused**. One concern per PR. Refactors land separately from
    feature work.
 3. **Match existing style**. Service classes go under `Services/`, MCP tool

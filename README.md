@@ -31,6 +31,8 @@ AI Client  <--stdio/MCP-->  dotnet-coverage-mcp  <--shell-->  dotnet test + repo
 
 ## Available Tools
 
+MCP clients list these tools in snake_case (`run_tests_with_coverage`, `get_file_coverage`, ...). The names below are the C# method names used throughout these docs.
+
 | Tool | Description |
 |------|-------------|
 | `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` project. Returns file metadata (lines, method count) and smart batches grouped by `lineBudget`. |

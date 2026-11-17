@@ -67,11 +67,11 @@ Before generating boilerplate, read 2–3 existing test files in the test projec
 - **Using statements** — which namespaces are imported
 - **Mock framework** — Moq (`Mock<T>`), NSubstitute (`Substitute.For<T>`), or FakeItEasy
 - **Base class** — whether tests inherit from a base test class
-- **Attribute style** — `[TestFixture]`, `[SetUp]`, `[Test]` (NUnit)
+- **Test framework** — from the test project's `PackageReference`s and existing attributes: xUnit (`[Fact]`, constructor setup), NUnit (`[TestFixture]`, `[SetUp]`, `[Test]`) or MSTest (`[TestClass]`, `[TestInitialize]`, `[TestMethod]`)
 - **Naming convention** — `MethodName_Condition_Result` or other patterns
 - **DI setup patterns** — how `ServiceCollection` or `WebApplicationFactory` is configured
 
-If no existing test files, use NUnit defaults with clean DI patterns.
+If there are no existing test files, use the framework the test project references, with clean DI patterns. Never mix attributes from different frameworks.
 
 ### Step 5: Read context-specific rules
 Based on test type being generated:
@@ -83,16 +83,16 @@ Apply these rules when generating the boilerplate.
 ### Step 6: Generate unit test file
 Create the unit test file with boilerplate matching the project's conventions:
 - Namespace mirroring source namespace
-- `[TestFixture]` class
-- Constructor or `[SetUp]` creating mocks for all injected interfaces
+- Test class in the project's framework style (NUnit `[TestFixture]`, MSTest `[TestClass]`, xUnit plain class)
+- Per-test setup (xUnit constructor, NUnit `[SetUp]`, MSTest `[TestInitialize]`) creating mocks for all injected interfaces
 - Instantiating the class under test with mocked dependencies
 - Empty test method stubs for each public method (no assertions — those come from `improve-test-coverage`)
 
 ### Step 7: Generate integration test file
 Create the integration test file with clean DI + in-memory infrastructure:
 - Namespace mirroring source namespace
-- `[TestFixture]` class
-- `[SetUp]` building a real `ServiceCollection` with:
+- Test class in the project's framework style
+- Per-test setup building a real `ServiceCollection` with:
   - In-memory database (`UseInMemoryDatabase`) if EF Core `DbContext` is used
   - Real service registrations from the project's DI composition root
   - Only external services mocked (HTTP clients, third-party APIs)
