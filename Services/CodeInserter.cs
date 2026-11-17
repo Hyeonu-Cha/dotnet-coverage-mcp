@@ -15,7 +15,7 @@ public sealed class CodeSyntaxException(string message) : Exception(message);
 
 public interface ICodeInserter
 {
-    Task<InsertionResult> InsertCodeAsync(string testFilePath, string codeToAppend, string? insertAfterAnchor);
+    Task<InsertionResult> InsertCodeAsync(string testFilePath, string codeToAppend, string? insertAfterAnchor, string? targetClass = null);
 }
 
 public class CodeInserter : ICodeInserter
@@ -29,7 +29,7 @@ public class CodeInserter : ICodeInserter
         _logger = logger;
     }
 
-    public async Task<InsertionResult> InsertCodeAsync(string testFilePath, string codeToAppend, string? insertAfterAnchor)
+    public async Task<InsertionResult> InsertCodeAsync(string testFilePath, string codeToAppend, string? insertAfterAnchor, string? targetClass = null)
     {
         // Checked before either insertion path. The string fallback exists for anchors
         // Roslyn cannot place, not for broken code: falling back on a syntax error used to
@@ -45,12 +45,16 @@ public class CodeInserter : ICodeInserter
         {
             var content = File.ReadAllText(testFilePath);
 
-            if (TryRoslynInsert(content, codeToAppend, insertAfterAnchor, out var roslynResult, out var roslynError))
+            if (TryRoslynInsert(content, codeToAppend, insertAfterAnchor, out var roslynResult, out var roslynError, targetClass))
             {
                 _fileService.AtomicWriteFile(testFilePath, roslynResult);
                 result = new InsertionResult(InsertionMethod.RoslynAst, roslynResult);
                 return;
             }
+
+            // The string fallback has no notion of classes, so it cannot honour targetClass.
+            if (targetClass != null)
+                throw new InvalidOperationException($"Could not insert into class '{targetClass}': {roslynError}.");
 
             _logger.LogDebug("Roslyn AST insertion failed for {File}, falling back to string-based: {Reason}",
                 testFilePath, roslynError ?? "unknown");
@@ -218,7 +222,59 @@ public class CodeInserter : ICodeInserter
                "Pass test methods or fields only; namespace and class declarations belong in the file, not in codeToAppend.";
     }
 
-    internal static bool TryRoslynInsert(string content, string codeToAppend, string? insertAfterAnchor, out string result, out string? failureReason)
+    // Attributes that mark a type as the file's test class (xUnit, NUnit, MSTest).
+    private static readonly HashSet<string> TestAttributeNames =
+        ["Fact", "Theory", "Test", "TestCase", "TestCaseSource", "TestMethod", "DataTestMethod", "TestFixture", "TestClass"];
+
+    private static bool HasTestAttribute(SyntaxList<AttributeListSyntax> lists) =>
+        lists.SelectMany(l => l.Attributes).Any(a =>
+        {
+            var name = a.Name.ToString();
+            name = name[(name.LastIndexOf('.') + 1)..];
+            if (name.EndsWith("Attribute", StringComparison.Ordinal)) name = name[..^"Attribute".Length];
+            return TestAttributeNames.Contains(name);
+        });
+
+    private static bool ContainsTests(TypeDeclarationSyntax type) =>
+        HasTestAttribute(type.AttributeLists)
+        || type.Members.OfType<MethodDeclarationSyntax>().Any(m => HasTestAttribute(m.AttributeLists));
+
+    /// <summary>
+    /// The class new tests go into when the caller names neither a class nor an anchor:
+    /// the last top-level type that contains tests, else the last top-level type. Nested
+    /// types and trailing helpers (test-data records, fakes) are skipped; picking the last
+    /// type of any kind is what used to put tests into those.
+    /// </summary>
+    internal static TypeDeclarationSyntax PickDefaultTargetType(CompilationUnitSyntax root)
+    {
+        var topLevel = root.DescendantNodes(n => n is not TypeDeclarationSyntax)
+            .OfType<TypeDeclarationSyntax>()
+            .ToList();
+        return topLevel.LastOrDefault(ContainsTests) ?? topLevel.Last();
+    }
+
+    // The last member, in any candidate type, whose text contains the anchor. A nested type
+    // also counts as a member of its parent, so a method inside it is preferred over the
+    // whole nested type: the new code then goes next to that method, inside the nested type.
+    private static (TypeDeclarationSyntax Type, MemberDeclarationSyntax Member)? FindAnchorMember(
+        IEnumerable<TypeDeclarationSyntax> types, string anchor)
+    {
+        var candidates = types.SelectMany(t => t.Members.Select(m => (Type: t, Member: m))).ToList();
+
+        (TypeDeclarationSyntax, MemberDeclarationSyntax)? Best(Func<MemberDeclarationSyntax, bool> matches) =>
+            candidates.Where(c => matches(c.Member))
+                .OrderBy(c => c.Member is BaseTypeDeclarationSyntax ? 0 : 1)
+                .ThenBy(c => c.Member.SpanStart)
+                .Select(c => ((TypeDeclarationSyntax, MemberDeclarationSyntax)?)c)
+                .LastOrDefault();
+
+        var normalizedAnchor = NormalizeWhitespace(anchor);
+        return Best(m => m.ToFullString().Contains(anchor, StringComparison.Ordinal))
+            ?? Best(m => NormalizeWhitespace(m.ToFullString()).Contains(normalizedAnchor, StringComparison.Ordinal));
+    }
+
+    internal static bool TryRoslynInsert(string content, string codeToAppend, string? insertAfterAnchor,
+        out string result, out string? failureReason, string? targetClass = null)
     {
         result = "";
         failureReason = null;
@@ -229,8 +285,31 @@ public class CodeInserter : ICodeInserter
             var tree = CSharpSyntaxTree.ParseText(content);
             var root = tree.GetCompilationUnitRoot();
 
-            var targetType = root.DescendantNodes().OfType<TypeDeclarationSyntax>().LastOrDefault();
-            if (targetType == null) { failureReason = "no type declaration found in file"; return false; }
+            var types = root.DescendantNodes().OfType<TypeDeclarationSyntax>().ToList();
+            if (types.Count == 0) { failureReason = "no type declaration found in file"; return false; }
+
+            if (targetClass != null)
+            {
+                types = types.Where(t => t.Identifier.Text == targetClass).ToList();
+                if (types.Count == 0) { failureReason = $"class '{targetClass}' not found in file"; return false; }
+            }
+
+            TypeDeclarationSyntax targetType;
+            MemberDeclarationSyntax? anchorMember = null;
+            if (insertAfterAnchor != null)
+            {
+                // Limitation: this only matches anchors contained within a single member's
+                // full text. Anchors that span two adjacent members (e.g., the closing brace
+                // of method A plus the signature of method B) will not match here — the
+                // string fallback path handles that case.
+                var match = FindAnchorMember(types, insertAfterAnchor);
+                if (match == null) { failureReason = $"anchor not found in any class member: \"{insertAfterAnchor}\""; return false; }
+                (targetType, anchorMember) = match.Value;
+            }
+            else
+            {
+                targetType = targetClass != null ? types.Last() : PickDefaultTargetType(root);
+            }
 
             var wrapperTree = CSharpSyntaxTree.ParseText($"class __RoslynWrapper__ {{\n{memberCode}\n}}");
             var wrapperRoot = wrapperTree.GetCompilationUnitRoot();
@@ -251,24 +330,8 @@ public class CodeInserter : ICodeInserter
 
             TypeDeclarationSyntax updatedType;
 
-            if (insertAfterAnchor != null)
+            if (anchorMember != null)
             {
-                // Limitation: this only matches anchors contained within a single member's
-                // full text. Anchors that span two adjacent members (e.g., the closing brace
-                // of method A plus the signature of method B) will not match here — the
-                // string fallback path handles that case.
-                var anchorMember = targetType.Members
-                    .LastOrDefault(m => m.ToFullString().Contains(insertAfterAnchor, StringComparison.Ordinal));
-
-                if (anchorMember == null)
-                {
-                    var normalizedAnchor = NormalizeWhitespace(insertAfterAnchor);
-                    anchorMember = targetType.Members
-                        .LastOrDefault(m => NormalizeWhitespace(m.ToFullString()).Contains(normalizedAnchor, StringComparison.Ordinal));
-                }
-
-                if (anchorMember == null) { failureReason = $"anchor not found in any class member: \"{insertAfterAnchor}\""; return false; }
-
                 var insertIndex = targetType.Members.IndexOf(anchorMember) + 1;
                 var membersList = targetType.Members.ToList();
                 membersList.InsertRange(insertIndex, newMembers);
