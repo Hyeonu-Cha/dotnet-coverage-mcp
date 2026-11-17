@@ -387,7 +387,7 @@ public class CoverageToolsTests
         var tempFile = Path.GetTempFileName();
         try
         {
-            _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
+            _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
                 .ThrowsAsync(new KeyNotFoundException("anchor not found"));
 
             var result = await _sut.AppendTestCode(tempFile, "code", "missing-anchor");
@@ -405,7 +405,7 @@ public class CoverageToolsTests
         var tempFile = Path.GetTempFileName();
         try
         {
-            _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
+            _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
                 .ThrowsAsync(new CodeSyntaxException("codeToAppend is not valid C# member code"));
 
             var result = await _sut.AppendTestCode(tempFile, "public void Bad( { }");
@@ -424,7 +424,7 @@ public class CoverageToolsTests
         var tempFile = Path.GetTempFileName();
         try
         {
-            _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
+            _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
                 .ReturnsAsync(new InsertionResult(InsertionMethod.RoslynAst, "content"));
 
             var result = await _sut.AppendTestCode(tempFile, "code");

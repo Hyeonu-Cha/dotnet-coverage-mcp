@@ -261,7 +261,8 @@ Or point directly at the compiled executable:
 |-----------|------|----------|-------------|
 | `testFilePath` | string | Yes | Full path to the target `.cs` test file |
 | `codeToAppend` | string | Yes | C# code to insert |
-| `insertAfterAnchor` | string | No | If provided, inserts code after the last occurrence of this string (with whitespace-tolerant fallback). If omitted, appends before the last `}`. |
+| `insertAfterAnchor` | string | No | If provided, inserts code after the last member containing this string (whitespace-tolerant), in whichever class holds it. If omitted, appends at the end of the target class. |
+| `targetClass` | string | No | Simple name of the class to insert into, nested classes included. If omitted, the file's test class is used: the last top-level class with test attributes (`[Fact]`, `[Test]`, `[TestMethod]`, `[TestFixture]`, ...), else the last top-level class. |
 
 ### `CleanupSession`
 | Parameter | Type | Required | Description |
