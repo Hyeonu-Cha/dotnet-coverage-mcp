@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `RunTestsWithCoverage` with `filter: "*"` ran zero tests: VSTest has no wildcard,
+  so `FullyQualifiedName~*` matched nothing, yet the run reported success with an
+  all-zero coverage report. `*`, an empty filter, or no filter now runs every test,
+  and `filter` is optional.
+- Filters containing a dot (e.g. `OrderServiceTests.PlacesOrder`, the example in
+  the tool's own description) matched nothing, because they were turned into an
+  exact `FullyQualifiedName=` match that needs the full namespace. The filter is
+  now passed to `dotnet test --filter` unchanged, so dotted names, `A|B` and
+  `Category=Unit` all work.
+
+### Added
+- End-to-end tests that run `RunTestsWithCoverage` with real `dotnet test`
+  against a small fixture project (`DotNetCoverageMcp.Tests/Fixtures`).
+
 ### Changed
 - **Breaking:** the tool now targets .NET 10 (was .NET 9, which is out of
   support) and sets `RollForward=Major`. It runs on .NET 10 and any later
