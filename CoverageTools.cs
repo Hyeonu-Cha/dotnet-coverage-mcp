@@ -55,7 +55,7 @@ public class CoverageTools
         string? workingDir = null,
         [Description("When true, omits --no-restore. Set after scaffolding a new test project or adding NuGet references; otherwise leave false for faster runs.")]
         bool forceRestore = false,
-        [Description("Optional opaque token (any string) used to isolate output artifacts (TestResults-{hash}/ and the coverage state) so concurrent agents don't trample each other. Omit for single-agent use.")]
+        [Description("Optional opaque token (any string) used to isolate output artifacts (TestResults-{hash}/ and the coverage state) so concurrent agents don't trample each other. Omit for single-agent use; results then go to TestResults-mcp/.")]
         string? sessionId = null,
         [Description("Optional class-name pattern, VSTest/coverlet only, that restricts coverage collection to types matching this name (coverlet Include filter, e.g. 'OrderService' or 'Order*'), applied via a generated runsettings file. Independent of `filter`; omit to collect coverage for everything the run touches. Namespace-qualified names are not supported.")]
         string? includeClass = null,
@@ -103,8 +103,10 @@ public class CoverageTools
             return JsonHelper.Error("invalidParameter",
                 "includeClass applies to coverlet on VSTest only; this repository runs dotnet test on Microsoft.Testing.Platform (global.json). Omit includeClass.");
 
+        // Never the bare "TestResults": plain `dotnet test` and Visual Studio write there by
+        // default, and this folder is deleted at the start of every run.
         var suffix = _sessionManager.ComputeSuffix(sessionId);
-        var resultsDir = Path.Combine(workingDir, $"TestResults{suffix}");
+        var resultsDir = Path.Combine(workingDir, "TestResults" + (suffix.Length > 0 ? suffix : "-mcp"));
 
         _fileService.SafeDelete(resultsDir);
 
@@ -764,7 +766,7 @@ public class CoverageTools
     // --- 8. CleanupSession ---
 
     [McpServerTool(Title = "Clean up coverage artifacts", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
-    [Description("Remove session state files and TestResults/coveragereport directories. Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes`.")]
+    [Description("Remove session state files and the TestResults-* directories this tool created (never the bare TestResults that dotnet test and Visual Studio use). Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes`.")]
     public string CleanupSession(
         [Description("Project working directory containing .mcp-coverage/, TestResults*, and coveragereport* artifacts to clean. Must be inside COVERAGE_MCP_ALLOWED_ROOT when that environment variable is set.")]
         string workingDir,
