@@ -75,3 +75,8 @@ public sealed class SyncProgress(Action<ModelContextProtocol.ProgressNotificatio
 {
     public void Report(ModelContextProtocol.ProgressNotificationValue value) => onReport(value);
 }
+
+public sealed class SyncStringProgress(Action<string> onReport) : IProgress<string>
+{
+    public void Report(string value) => onReport(value);
+}

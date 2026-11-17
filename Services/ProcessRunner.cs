@@ -294,7 +294,11 @@ public class ProcessRunner : IProcessRunner
             return "Restoring packages";
         if (BuiltRx.Match(line) is { Success: true } built) return $"Built {built.Groups[1].Value}";
         if (TestsStartedRx.Match(line) is { Success: true } started)
-            return $"Running tests in {Path.GetFileName(started.Groups[1].Value)}";
+        {
+            // Split on both separators: Path.GetFileName on Linux leaves "C:\a\b.dll" whole.
+            var path = started.Groups[1].Value;
+            return $"Running tests in {path[(path.LastIndexOfAny(['/', '\\']) + 1)..]}";
+        }
         var trimmed = line.Trim();
         if (trimmed.StartsWith("Passed!", StringComparison.Ordinal) || trimmed.StartsWith("Failed!", StringComparison.Ordinal)
             || trimmed.StartsWith("Test run summary:", StringComparison.Ordinal))

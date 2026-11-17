@@ -59,15 +59,38 @@ public class DotnetTestMtpEndToEndTests : IClassFixture<SampleProjectMtpFixture>
     }
 
     [Fact]
-    public async Task ReportsProgressFromMtpOutput()
+    public async Task ReportsProgressAndCountsFromMtpOutput()
     {
+        // Calls the runner directly so a failure can show the raw console output, whose
+        // shape differs between SDK versions.
         var messages = new List<string>();
-        var progress = new SyncProgress(v => { lock (messages) messages.Add(v.Message!); });
+        var progress = new Progress<string>(m => { lock (messages) messages.Add(m); });
+        var resultsDir = Path.Combine(_fixture.Root, $"TestResults-progress-{Guid.NewGuid():N}");
+        var result = await new ProcessRunner(NullLogger<ProcessRunner>.Instance).RunDotnetTestAsync(
+            _fixture.TestProjectPath, null, resultsDir, Path.GetDirectoryName(_fixture.TestProjectPath)!,
+            forceRestore: false, includeClass: null, progress: new SyncStringProgress(m => { lock (messages) messages.Add(m); }),
+            CancellationToken.None);
 
-        await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, skipReport: true, progress: progress);
+        var raw = $"messages: {string.Join(" | ", messages)}
+--- stdout ---
+{Visible(result.Output)}
+--- stderr ---
+{Visible(result.Error)}";
+        result.Outcome.Should().Be(TestRunOutcome.Success, because: raw);
+        messages.Should().Contain("Running tests in SampleLib.Tests.dll", because: raw);
+        messages.Should().Contain(m => m.StartsWith("Test run summary:", StringComparison.Ordinal)
+                                       || m.StartsWith("Passed!", StringComparison.Ordinal), because: raw);
+        // The counts fallback used when a project has no TrxReport extension reads the same output.
+        ProcessRunner.ParseMtpSummary(result.Output).Should().NotBeNull(because: raw);
+        progress.Should().NotBeNull();
+    }
 
-        messages.Should().Contain("Running tests in SampleLib.Tests.dll", because: string.Join(" | ", messages));
-        messages.Should().Contain(m => m.StartsWith("Test run summary:", StringComparison.Ordinal));
+    // Control characters (e.g. ANSI escapes) made visible, tail only.
+    private static string Visible(string s)
+    {
+        var tail = s.Length > 3000 ? s[^3000..] : s;
+        return string.Concat(tail.Select(c => c is '
+' or '' or '	' || !char.IsControl(c) ? c.ToString() : $"\u{(int)c:x4}"));
     }
 
     [Fact]
