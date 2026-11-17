@@ -229,7 +229,7 @@ Or point directly at the compiled executable:
 ### `RunTestsWithCoverage`
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `testProjectPath` | string | Yes | Full path to the `.csproj` test project |
+| `testProjectPath` | string | Yes | Path to the `.csproj` test project. Resolved to a rooted path and required to end in `.csproj`; anything else (e.g. a CLI option) is rejected with `invalidParameter`. |
 | `filter` | string | No | Passed to `dotnet test --filter`. A plain name matches tests whose fully qualified name contains it (`OrderServiceTests`, `OrderServiceTests.PlacesOrder`); full VSTest expressions also work (`OrderTests\|PaymentTests`, `Category=Unit`). Omit or pass `*` to run every test. |
 | `workingDir` | string | No | Working directory; defaults to the project directory |
 | `forceRestore` | bool | No | When `true`, skips the `--no-restore` flag. Use after scaffolding a new test project or adding NuGet packages. |

@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   untouched.
 - Restored the `## [2.0.0]` heading in this changelog, dropped by mistake while
   adding the entry above it.
+- `RunTestsWithCoverage` passed `testProjectPath` to `dotnet test` verbatim as its
+  first argument, so a value like `--help` or `-bl:evil.binlog` was parsed as a
+  CLI/MSBuild option (`--help` printed usage; an MSBuild logger switch wrote a file
+  outside the allowed root). The path is now resolved to a rooted path — which
+  `dotnet test` always treats as the project, never an option — and must end in
+  `.csproj`; anything else is rejected with `invalidParameter` before any process
+  starts. A relative `testProjectPath` is also resolved now, instead of failing
+  with `MSB1009`.
 
 ## [2.0.0] - 2026-11-17
 
