@@ -151,6 +151,20 @@ public class CoverageToolsTests
     }
 
     [Fact]
+    public void GetFileCoverage_Ambiguous_ReturnsCandidates()
+    {
+        _sessionManager.Setup(s => s.ResolveCoberturaPath(It.IsAny<string>(), It.IsAny<string?>())).Returns("/c.xml");
+        _coberturaService.Setup(c => c.GetFileCoverage("/c.xml", "OrderController.cs", 0.8))
+            .Throws(new AmbiguousFileException("matches 2 files", ["A/OrderController.cs", "B/OrderController.cs"]));
+
+        var result = _sut.GetFileCoverage("/c.xml", "OrderController.cs");
+
+        AssertError(result, "ambiguous");
+        using var doc = JsonDocument.Parse(result);
+        doc.RootElement.GetProperty("candidates").GetArrayLength().Should().Be(2);
+    }
+
+    [Fact]
     public async Task RunTestsWithCoverage_NoCoverageXml_ReturnsError()
     {
         _processRunner.Setup(p => p.RunDotnetTestAsync(

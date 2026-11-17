@@ -358,7 +358,7 @@ public class CoverageTools
     public string GetFileCoverage(
         [Description("Absolute path to coverage.cobertura.xml. Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when the file is not found at this path.")]
         string coberturaXmlPath,
-        [Description("Source file name to look up (e.g. 'ExampleService.cs'). File-name match against the <class filename=\"...\"> entries in the Cobertura XML.")]
+        [Description("Source file to look up: an absolute path (as returned by GetSourceFiles), a repo-relative path ('Services/ExampleService.cs'), or a bare file name ('ExampleService.cs'). Matched on whole path segments. If a bare name matches files in several folders, an `ambiguous` error lists them; pass a longer path.")]
         string sourceFileName,
         [Description("Optional session token used to resolve the session-scoped .coverage-state-{hash} fallback. Omit for single-agent use.")]
         string? sessionId = null,
@@ -383,6 +383,10 @@ public class CoverageTools
         catch (KeyNotFoundException ex)
         {
             return JsonHelper.Error("noMatch", ex.Message);
+        }
+        catch (AmbiguousFileException ex)
+        {
+            return JsonHelper.Serialize(new { error = ex.Message, errorType = "ambiguous", candidates = ex.Candidates });
         }
         catch (Exception ex)
         {
