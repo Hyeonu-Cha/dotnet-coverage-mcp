@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-17
+
+### Upgrading from 1.x
+- **.NET 10 or later is required** to run the tool (it was .NET 9).
+- **Method and class names in coverage results changed.** Async methods,
+  lambdas and local functions are reported under the method they belong to
+  (`AddAsync`, not `MoveNext` in `<AddAsync>d__2`); a class no longer appears
+  once per state machine; overloads are labelled `Name (line N)`. Coverage
+  diffs against a 1.x baseline will show these as removed and re-added once.
+- **`GetUncoveredBranches` reports more, in a new format.** Half-covered
+  branches are now listed, as `condition N (jump, 50% covered)`.
+- **New error types** clients may see: `testsFailed` (was `buildError` for a
+  failing test), `noTestsMatched`, `syntaxError`, `insertFailed`,
+  `missingExtension`, `ambiguous`, `noTestableTypes`.
+- **`filter` is passed to `dotnet test --filter` unchanged** and is optional;
+  `*` or omitting it runs every test.
+- **`GetFileCoverage.sourceFile`** is the report path that matched, not the
+  string passed in.
+- New tools: `GetCoverageGaps`, `GetTestEnvironment`, `DescribeTestTarget`.
+
 ### Changed
 - **Breaking:** the tool now targets .NET 10 (was .NET 9, which is out of
   support) and sets `RollForward=Major`. It runs on .NET 10 and any later
