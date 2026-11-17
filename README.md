@@ -39,7 +39,7 @@ AI Client  <--stdio/MCP-->  dotnet-coverage-mcp  <--shell-->  dotnet test + repo
 | `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes meet the configured `targetRate` for both line and branch coverage; default 0.8). Supports `sessionId`. |
 | `GetUncoveredBranches` | Find uncovered branch conditions for methods matching a given name. Returns all matching methods with partial name support. Supports `sessionId`. |
 | `GetCoverageDiff` | Compare current Cobertura XML against baseline. Shows method-level changes including new and removed methods. Supports `sessionId` for concurrent isolation. |
-| `AppendTestCode` | Insert or append C# test code into a test file. Supports anchor-based insertion with whitespace-tolerant fallback matching. Uses atomic writes to prevent file corruption. |
+| `AppendTestCode` | Insert or append C# test code into a test file. Rejects code that is not valid C# member syntax with `syntaxError`, leaving the file unchanged. Supports anchor-based insertion with whitespace-tolerant fallback matching. Uses atomic writes to prevent file corruption. |
 | `CleanupSession` | Remove session state files and `TestResults/coveragereport` directories. Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes` (default 120). |
 
 ## Batch Workflow

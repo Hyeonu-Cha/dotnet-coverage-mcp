@@ -10,6 +10,9 @@ public enum InsertionMethod { RoslynAst, StringFallback, StringFallbackNormalize
 
 public record InsertionResult(InsertionMethod Method, string Content);
 
+/// <summary>The code to insert is not valid C# class-member syntax; nothing was written.</summary>
+public sealed class CodeSyntaxException(string message) : Exception(message);
+
 public interface ICodeInserter
 {
     Task<InsertionResult> InsertCodeAsync(string testFilePath, string codeToAppend, string? insertAfterAnchor);
@@ -28,6 +31,14 @@ public class CodeInserter : ICodeInserter
 
     public async Task<InsertionResult> InsertCodeAsync(string testFilePath, string codeToAppend, string? insertAfterAnchor)
     {
+        // Checked before either insertion path. The string fallback exists for anchors
+        // Roslyn cannot place, not for broken code: falling back on a syntax error used to
+        // write the broken code into the file and report success, and the agent only found
+        // out from the next build.
+        var syntaxError = FindSyntaxError(codeToAppend);
+        if (syntaxError != null)
+            throw new CodeSyntaxException(syntaxError);
+
         InsertionResult? result = null;
 
         await _fileService.WithFileLockAsync(testFilePath, async () =>
@@ -182,6 +193,29 @@ public class CodeInserter : ICodeInserter
             break;
         }
         return i;
+    }
+
+    /// <summary>
+    /// Parses the fragment the way it will be inserted (leading usings hoisted, the rest as
+    /// members of a class) and describes the first syntax error, or returns null if it is valid.
+    /// </summary>
+    internal static string? FindSyntaxError(string codeToAppend)
+    {
+        var (_, memberCode) = SplitLeadingUsings(codeToAppend);
+        var tree = CSharpSyntaxTree.ParseText($"class __RoslynWrapper__ {{\n{memberCode}\n}}");
+
+        var error = tree.GetDiagnostics().FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
+        if (error == null)
+        {
+            var members = tree.GetCompilationUnitRoot().DescendantNodes().OfType<TypeDeclarationSyntax>().First().Members;
+            return members.Count == 0 ? "codeToAppend contains no member declarations." : null;
+        }
+
+        // Quote the offending line rather than a line number: hoisted usings and the wrapper
+        // shift numbering, while the line's text is unambiguous to the caller.
+        var line = tree.GetText().Lines[error.Location.GetLineSpan().StartLinePosition.Line].ToString().Trim();
+        return $"codeToAppend is not valid C# member code: {error.Id}: {error.GetMessage()} Near: `{line}`. " +
+               "Pass test methods or fields only; namespace and class declarations belong in the file, not in codeToAppend.";
     }
 
     internal static bool TryRoslynInsert(string content, string codeToAppend, string? insertAfterAnchor, out string result, out string? failureReason)

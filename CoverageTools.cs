@@ -249,7 +249,7 @@ public class CoverageTools
     // --- 4. AppendTestCode ---
 
     [McpServerTool]
-    [Description("Insert C# code into a test file via Roslyn AST (string fallback). Pass `insertAfterAnchor` to target a position; omit to append inside the last class.")]
+    [Description("Insert C# code into a test file via Roslyn AST (string fallback). Pass `insertAfterAnchor` to target a position; omit to append inside the last class. Code that is not valid C# member syntax is rejected with `syntaxError` and the file is left unchanged.")]
     public async Task<string> AppendTestCode(
         [Description("Absolute path to the target .cs test file. Must already exist; the file is rewritten atomically.")]
         string testFilePath,
@@ -280,6 +280,10 @@ public class CoverageTools
         catch (KeyNotFoundException ex)
         {
             return JsonHelper.Error("anchorNotFound", ex.Message);
+        }
+        catch (CodeSyntaxException ex)
+        {
+            return JsonHelper.Error("syntaxError", ex.Message);
         }
     }
 
