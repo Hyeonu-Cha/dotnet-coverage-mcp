@@ -54,7 +54,7 @@ Example response:
 
 ### Step 0.5: Per-batch setup (repeat for each batch)
 For each file in the current batch:
-1. Read the source file to understand its constructor, dependencies, and public methods
+1. Call `DescribeTestTarget` on the source file: constructor dependencies with how to provide each (mock, `NullLogger`, `Options.Create`, real instance for sealed/concrete classes, SQLite for a `DbContext`), the methods with their decision points, calls a test can't control, the suggested test type, and any existing test file. Read the source itself only for the methods `GetCoverageGaps` points at
 2. Check if a matching test file exists; if not, use `scaffold-test-files` to create one
 3. Call `GetTestEnvironment` once for the test project and write every test in that stack: its `conventions` give the exact attributes for tests, data-driven cases, setup and teardown, and `mocking` / `assertions` name the libraries to use. Read its `warnings` (e.g. no coverage collector) before the first run
 4. Verify the test file has per-test setup in that framework's style (xUnit: constructor; NUnit: `[SetUp]`; MSTest: `[TestInitialize]`); add one if missing using `AppendTestCode`

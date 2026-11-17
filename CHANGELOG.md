@@ -92,6 +92,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method no longer shows it as removed and re-added.
 
 ### Added
+- `DescribeTestTarget`: for a source file, per class, the constructor
+  dependencies with how to provide each in a test (mock an interface,
+  `NullLogger`, `Options.Create`, a real instance for sealed or concrete
+  classes, SQLite in-memory for a `DbContext`), public and internal methods
+  with signatures and decision points, calls a test cannot control
+  (`DateTime.Now`, `File.*`, `Guid.NewGuid()`, `new HttpClient()`...) with
+  the usual seam, a suggested test type (unit / integration / either) with
+  reasons, and existing test files. Syntax-only: dependency types are looked
+  up in the file's project, so no build is needed. The scaffold and coverage
+  skills call it instead of reading whole source files.
 - MCP tool annotations on every tool: the six query tools are read-only and
   idempotent, `cleanup_session` is the only destructive one (the SDK's default
   is destructive, so the others now say they are not), and only
