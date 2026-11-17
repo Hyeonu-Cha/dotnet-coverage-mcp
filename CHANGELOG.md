@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Breaking:** the tool now targets .NET 10 (was .NET 9, which is out of
+  support) and sets `RollForward=Major`. It runs on .NET 10 and any later
+  runtime; a machine with only the .NET 9 runtime can no longer run it.
+  Previously the package started only where a .NET 9 runtime was installed,
+  so `dnx`-based installs on a .NET 10-only machine failed at startup.
+- `RunTestsWithCoverage` writes a TRX file (`--logger trx`) and reports
+  `Passed / Failed / Skipped` counts on success.
+
 ### Fixed
 - `RunTestsWithCoverage` with `filter: "*"` ran zero tests: VSTest has no wildcard,
   so `FullyQualifiedName~*` matched nothing, yet the run reported success with an
@@ -31,21 +40,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   code (including namespace/class wrappers and bare statements) is now
   rejected with `syntaxError`, naming the compiler error and quoting the
   offending line, and the file is not touched.
-
-### Changed
-- `RunTestsWithCoverage` writes a TRX file (`--logger trx`) and reports
-  `Passed / Failed / Skipped` counts on success.
+- `AppendTestCode` without an anchor put tests into the last type in the file,
+  counting nested types, so a nested fake, a trailing helper class or a
+  test-data `record` received them. It now picks the last top-level class
+  that has test attributes (xUnit, NUnit or MSTest), falling back to the last
+  top-level class. An `insertAfterAnchor` is now found in whichever class
+  holds it, not only the last one.
 
 ### Added
+- `targetClass` parameter on `AppendTestCode` to name the class to insert into,
+  nested classes included. When it cannot be honoured the call fails with
+  `insertFailed` instead of falling back to string insertion.
 - End-to-end tests that run `RunTestsWithCoverage` with real `dotnet test`
   against a small fixture project (`DotNetCoverageMcp.Tests/Fixtures`).
-
-### Changed
-- **Breaking:** the tool now targets .NET 10 (was .NET 9, which is out of
-  support) and sets `RollForward=Major`. It runs on .NET 10 and any later
-  runtime; a machine with only the .NET 9 runtime can no longer run it.
-  Previously the package started only where a .NET 9 runtime was installed,
-  so `dnx`-based installs on a .NET 10-only machine failed at startup.
 
 ### CI
 - Every PR now packs the tool, installs it from the local package, starts it

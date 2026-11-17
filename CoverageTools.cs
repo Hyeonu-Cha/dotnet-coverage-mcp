@@ -249,14 +249,16 @@ public class CoverageTools
     // --- 4. AppendTestCode ---
 
     [McpServerTool]
-    [Description("Insert C# code into a test file via Roslyn AST (string fallback). Pass `insertAfterAnchor` to target a position; omit to append inside the last class. Code that is not valid C# member syntax is rejected with `syntaxError` and the file is left unchanged.")]
+    [Description("Insert C# code into a test file via Roslyn AST (string fallback). By default the code goes into the file's test class (the last top-level class with test attributes); pass `targetClass` or `insertAfterAnchor` to choose. Code that is not valid C# member syntax is rejected with `syntaxError` and the file is left unchanged.")]
     public async Task<string> AppendTestCode(
         [Description("Absolute path to the target .cs test file. Must already exist; the file is rewritten atomically.")]
         string testFilePath,
-        [Description("C# code fragment to insert. Pass member declarations (test methods/fields) — do not include `namespace` or `using` lines unless intentionally adding them at the appropriate scope.")]
+        [Description("C# code fragment to insert. Pass member declarations (test methods/fields). Leading `using` lines are moved to the top of the file; do not include `namespace` or class declarations.")]
         string codeToAppend,
-        [Description("If set, code is inserted after the last occurrence of this exact string (whitespace-tolerant fallback). When omitted, code is appended before the closing brace of the last class in the file.")]
-        string? insertAfterAnchor = null)
+        [Description("If set, code is inserted after the last member containing this exact string (whitespace-tolerant), in whichever class holds it. When omitted, code is appended at the end of the target class.")]
+        string? insertAfterAnchor = null,
+        [Description("Optional simple class name to insert into (e.g. 'OrderServiceTests'), including nested classes. Omit to use the file's test class: the last top-level class with [Fact]/[Theory]/[Test]/[TestCase]/[TestMethod]/[TestFixture]/[TestClass], or the last top-level class if none has them.")]
+        string? targetClass = null)
     {
         try { _pathGuard.Validate(testFilePath, nameof(testFilePath)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
@@ -266,7 +268,8 @@ public class CoverageTools
 
         try
         {
-            var result = await _codeInserter.InsertCodeAsync(testFilePath, codeToAppend, insertAfterAnchor);
+            var result = await _codeInserter.InsertCodeAsync(testFilePath, codeToAppend, insertAfterAnchor,
+                string.IsNullOrWhiteSpace(targetClass) ? null : targetClass.Trim());
             var methodLabel = result.Method switch
             {
                 InsertionMethod.RoslynAst => "Roslyn AST",
@@ -284,6 +287,10 @@ public class CoverageTools
         catch (CodeSyntaxException ex)
         {
             return JsonHelper.Error("syntaxError", ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return JsonHelper.Error("insertFailed", ex.Message);
         }
     }
 

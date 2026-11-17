@@ -156,7 +156,7 @@ For each file in the batch:
 | Pitfall | Solution |
 |---------|----------|
 | Tests compile but coverage doesn't improve | The test may not be reaching the target branch — verify mock setup matches the condition |
-| `AppendTestCode` inserts in wrong location | Use a precise `insertAfterAnchor` string matching the last test method signature |
+| `AppendTestCode` inserts in wrong location | Pass `targetClass` with the test class name, or a precise `insertAfterAnchor` matching an existing test method signature |
 | Plateau after 1–2 cycles | Check if remaining uncovered branches require complex setup (async, private methods, static calls) — mark as blocked |
 | Over-testing simple properties | Skip auto-properties with no logic; focus on methods with conditionals |
 | Running every test is too slow | Pass a namespace or class name as `filter` |

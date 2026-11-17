@@ -1,4 +1,6 @@
 using DotNetCoverageMcp.Services;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -153,6 +155,129 @@ public class Second { public void Existing() { } }";
         var secondIdx = result.IndexOf("class Second");
         var addedIdx = result.IndexOf("Added");
         addedIdx.Should().BeGreaterThan(secondIdx);
+    }
+
+    // Name of the type that ends up holding the method named `method`.
+    private static string ClassHolding(string code, string method) =>
+        CSharpSyntaxTree.ParseText(code).GetCompilationUnitRoot()
+            .DescendantNodes().OfType<MethodDeclarationSyntax>()
+            .Single(m => m.Identifier.Text == method)
+            .Ancestors().OfType<TypeDeclarationSyntax>().First()
+            .Identifier.Text;
+
+    [Fact]
+    public void TryRoslynInsert_NestedTypeLast_InsertsIntoOuterTestClass()
+    {
+        // Regression: the last type in document order is the nested fixture, which used to
+        // receive the tests.
+        const string content = """
+            namespace N;
+            public class OrderTests
+            {
+                [Fact] public void Existing() { }
+
+                private sealed class FakeClock { public DateTime Now => DateTime.MinValue; }
+            }
+            """;
+
+        CodeInserter.TryRoslynInsert(content, "[Fact] public void Added() { }", null, out var result, out _)
+            .Should().BeTrue();
+
+        ClassHolding(result, "Added").Should().Be("OrderTests");
+    }
+
+    [Fact]
+    public void TryRoslynInsert_TrailingHelperAndRecord_InsertsIntoTestClass()
+    {
+        const string content = """
+            namespace N
+            {
+                [TestFixture]
+                public class OrderTests { [Test] public void Existing() { } }
+
+                internal static class TestData { public static int Value() => 1; }
+                public record OrderRow(int Id);
+            }
+            """;
+
+        CodeInserter.TryRoslynInsert(content, "[Test] public void Added() { }", null, out var result, out _)
+            .Should().BeTrue();
+
+        ClassHolding(result, "Added").Should().Be("OrderTests");
+    }
+
+    [Theory]
+    [InlineData("[TestMethod] public void Existing() { }", "")]          // MSTest method attribute
+    [InlineData("public void Existing() { }", "[TestClass]")]            // MSTest class attribute
+    [InlineData("[Xunit.FactAttribute] public void Existing() { }", "")] // qualified, with suffix
+    public void TryRoslynInsert_RecognisesTestAttributeSpellings(string member, string classAttribute)
+    {
+        var content = $"{classAttribute} public class RealTests {{ {member} }}\npublic class Helper {{ }}";
+
+        CodeInserter.TryRoslynInsert(content, "public void Added() { }", null, out var result, out _)
+            .Should().BeTrue();
+
+        ClassHolding(result, "Added").Should().Be("RealTests");
+    }
+
+    [Fact]
+    public void TryRoslynInsert_TargetClass_InsertsIntoNamedNestedClass()
+    {
+        const string content = "public class Outer { [Fact] public void A() { } public class Inner { } }";
+
+        CodeInserter.TryRoslynInsert(content, "public void Added() { }", null, out var result, out _, targetClass: "Inner")
+            .Should().BeTrue();
+
+        ClassHolding(result, "Added").Should().Be("Inner");
+    }
+
+    [Fact]
+    public void TryRoslynInsert_TargetClassMissing_FailsWithReason()
+    {
+        CodeInserter.TryRoslynInsert("public class A { }", "public void Added() { }", null, out _, out var reason, targetClass: "Nope")
+            .Should().BeFalse();
+
+        reason.Should().Contain("'Nope'");
+    }
+
+    [Fact]
+    public void TryRoslynInsert_AnchorInOtherClass_InsertsNextToAnchorInThatClass()
+    {
+        // The anchor used to be searched only in the last type, so this fell back to string insertion.
+        const string content = """
+            public class OrderTests { [Fact] public void PlacesOrder() { } [Fact] public void Other() { } }
+            public class Helper { public void Assist() { } }
+            """;
+
+        CodeInserter.TryRoslynInsert(content, "[Fact] public void Added() { }", "void PlacesOrder()", out var result, out _)
+            .Should().BeTrue();
+
+        ClassHolding(result, "Added").Should().Be("OrderTests");
+        result.IndexOf("Added").Should().BeLessThan(result.IndexOf("void Other"), "it goes right after the anchor member");
+    }
+
+    [Fact]
+    public void TryRoslynInsert_AnchorInsideNestedClass_InsertsInsideNestedClass()
+    {
+        const string content = "public class Outer { public class Inner { public void Target() { } } [Fact] public void A() { } }";
+
+        CodeInserter.TryRoslynInsert(content, "public void Added() { }", "void Target()", out var result, out _)
+            .Should().BeTrue();
+
+        ClassHolding(result, "Added").Should().Be("Inner");
+    }
+
+    [Fact]
+    public async Task InsertCodeAsync_TargetClassMissing_ThrowsAndDoesNotFallBack()
+    {
+        var path = Path.Combine(_tempDir, "Target.cs");
+        const string original = "public class A { }";
+        File.WriteAllText(path, original);
+
+        var act = () => _sut.InsertCodeAsync(path, "public void Added() { }", null, targetClass: "Nope");
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*'Nope'*");
+        File.ReadAllText(path).Should().Be(original);
     }
 
     // --- NormalizeWhitespace (static) ---
