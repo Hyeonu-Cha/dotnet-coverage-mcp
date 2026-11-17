@@ -138,6 +138,107 @@ public class CoberturaServiceTests : IDisposable
         act.Should().Throw<KeyNotFoundException>();
     }
 
+    // Shape of a real coverlet report: paths relative to <source>, forward slashes.
+    private string WriteScopedReport(string sourceRoot) => WriteCoberturaXml($"""
+        <coverage>
+          <sources><source>{sourceRoot}</source></sources>
+          <packages><package name="App"><classes>
+            <class name="App.Services.CoberturaService" filename="Services/CoberturaService.cs" line-rate="0.9" branch-rate="0.9"><methods/></class>
+            <class name="App.Services.FileService" filename="Services/FileService.cs" line-rate="0.5" branch-rate="0.5"><methods/></class>
+            <class name="App.Controllers.OrderController" filename="Controllers/OrderController.cs" line-rate="0.9" branch-rate="0.9"><methods/></class>
+            <class name="App.Controllers.AdminOrderController" filename="Controllers/AdminOrderController.cs" line-rate="0.1" branch-rate="0.1"><methods/></class>
+            <class name="App.Areas.Shop.OrderController" filename="Areas/Shop/OrderController.cs" line-rate="0.2" branch-rate="0.2"><methods/></class>
+          </classes></package></packages>
+        </coverage>
+        """);
+
+    [Theory]
+    [InlineData(@"C:\repo\Services\FileService.cs")]   // absolute, as GetSourceFiles returns it
+    [InlineData("C:/repo/Services/FileService.cs")]
+    [InlineData("Services/FileService.cs")]
+    [InlineData(@"Services\FileService.cs")]
+    [InlineData("FileService.cs")]
+    public void GetFileCoverage_AcceptsAbsoluteRelativeAndBareNames(string requested)
+    {
+        var path = WriteScopedReport("C:/repo/");
+
+        var result = _sut.GetFileCoverage(path, requested, 0.8);
+
+        result.SourceFile.Should().Be("Services/FileService.cs");
+        result.Classes.Select(c => c.Class).Should().Equal("App.Services.FileService");
+    }
+
+    [Fact]
+    public void GetFileCoverage_AbsolutePathOnLinuxRoot()
+    {
+        var path = WriteScopedReport("/home/runner/work/repo/");
+
+        var result = _sut.GetFileCoverage(path, "/home/runner/work/repo/Services/FileService.cs", 0.8);
+
+        result.SourceFile.Should().Be("Services/FileService.cs");
+    }
+
+    [Theory]
+    [InlineData("Service.cs")]          // used to match CoberturaService.cs and FileService.cs
+    [InlineData("rController.cs")]
+    public void GetFileCoverage_DoesNotMatchPartialFileNames(string requested)
+    {
+        var path = WriteScopedReport("C:/repo/");
+
+        var act = () => _sut.GetFileCoverage(path, requested, 0.8);
+
+        act.Should().Throw<KeyNotFoundException>();
+    }
+
+    [Fact]
+    public void GetFileCoverage_DoesNotPullInFileWithLongerName()
+    {
+        // Regression: "OrderController.cs" also matched AdminOrderController.cs, whose 10%
+        // coverage then made allMeetTarget false for a file that was at 90%.
+        var path = WriteScopedReport("C:/repo/");
+
+        var result = _sut.GetFileCoverage(path, "Controllers/OrderController.cs", 0.8);
+
+        result.Classes.Select(c => c.Class).Should().Equal("App.Controllers.OrderController");
+        result.AllMeetTarget.Should().BeTrue();
+    }
+
+    [Fact]
+    public void GetFileCoverage_BareNameInTwoFolders_ThrowsAmbiguousWithCandidates()
+    {
+        var path = WriteScopedReport("C:/repo/");
+
+        var act = () => _sut.GetFileCoverage(path, "OrderController.cs", 0.8);
+
+        act.Should().Throw<AmbiguousFileException>()
+            .Which.Candidates.Should().BeEquivalentTo("Controllers/OrderController.cs", "Areas/Shop/OrderController.cs");
+    }
+
+    [Fact]
+    public void GetFileCoverage_AbsolutePathPicksExactFileAmongSameNames()
+    {
+        var path = WriteScopedReport("C:/repo/");
+
+        var result = _sut.GetFileCoverage(path, @"C:\repo\Areas\Shop\OrderController.cs", 0.8);
+
+        result.SourceFile.Should().Be("Areas/Shop/OrderController.cs");
+        result.Classes.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void GetFileCoverage_PartialClassAcrossOneFile_IsNotAmbiguous()
+    {
+        // Several <class> entries for one file (nested/generated types) are one file, not many.
+        var path = WriteCoberturaXml("""
+            <coverage><packages><package><classes>
+              <class name="App.Foo" filename="Foo.cs" line-rate="1" branch-rate="1"><methods/></class>
+              <class name="App.Foo/&lt;Run&gt;d__1" filename="Foo.cs" line-rate="1" branch-rate="1"><methods/></class>
+            </classes></package></packages></coverage>
+            """);
+
+        _sut.GetFileCoverage(path, "Foo.cs", 0.8).Classes.Should().HaveCount(2);
+    }
+
     // --- GetUncoveredBranches ---
 
     [Fact]

@@ -64,7 +64,7 @@ This runs `dotnet test` **once** and collects coverage across all source files.
 
 Leave `includeClass` unset. It would silently limit collection to a single class and zero out the rest of the batch.
 
-Then for **each file in the batch**, call `GetFileCoverage` with `coberturaXmlPath` and the file name.
+Then for **each file in the batch**, call `GetFileCoverage` with `coberturaXmlPath` and the file's `path` from the batch (absolute paths are fine). If it returns `ambiguous`, pass one of the listed `candidates`.
 - If `allMeetTarget: true` → mark file as done, skip it
 - If `allMeetTarget: false` → include in this cycle's work
 

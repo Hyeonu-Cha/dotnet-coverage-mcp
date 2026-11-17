@@ -28,6 +28,12 @@ public record UncoveredBranchesResult(int MatchCount, List<UncoveredMethod> Meth
 public record UncoveredMethod(string Method, string Class, List<UncoveredBranch> UncoveredBranches);
 public record UncoveredBranch(int Line, List<string> Missing);
 
+/// <summary>A file name matched several files in the report; nothing was merged.</summary>
+public sealed class AmbiguousFileException(string message, IReadOnlyList<string> candidates) : Exception(message)
+{
+    public IReadOnlyList<string> Candidates { get; } = candidates;
+}
+
 public record DiffResult(
     bool FirstRun,
     DiffDelta? CycleImprovement,
@@ -102,19 +108,35 @@ public class CoberturaService : ICoberturaService
     public FileCoverageResult GetFileCoverage(string coberturaXmlPath, string sourceFileName, double targetRate)
     {
         var doc = XDocument.Load(coberturaXmlPath);
+        var sourceRoots = doc.Descendants("source").Select(s => NormalizePath(s.Value)).Where(s => s.Length > 0).ToList();
+        var requested = NormalizePath(sourceFileName);
 
-        var matchedClasses = doc.Descendants("class")
-            .Where(c =>
-            {
-                var filename = c.Attribute("filename")?.Value ?? "";
-                return filename.EndsWith(sourceFileName, StringComparison.OrdinalIgnoreCase)
-                    || filename.EndsWith(sourceFileName.Replace("/", "\\"), StringComparison.OrdinalIgnoreCase)
-                    || filename.EndsWith(sourceFileName.Replace("\\", "/"), StringComparison.OrdinalIgnoreCase);
-            })
+        var candidates = doc.Descendants("class")
+            .Select(c => (Element: c, File: NormalizePath(c.Attribute("filename")?.Value ?? "")))
+            .Where(c => PathMatches(c.File, requested, sourceRoots))
             .ToList();
 
-        if (matchedClasses.Count == 0)
+        if (candidates.Count == 0)
             throw new KeyNotFoundException($"No classes found for source file '{sourceFileName}' in coverage report.");
+
+        // A bare name like "OrderController.cs" can match the same name in several folders.
+        // Merging them would report one file's coverage as another's, so ask the caller to
+        // choose unless exactly one candidate is the path they gave.
+        var files = candidates.Select(c => c.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (files.Count > 1)
+        {
+            var exact = files.Where(f => IsExactMatch(f, requested, sourceRoots)).ToList();
+            if (exact.Count != 1)
+                throw new AmbiguousFileException(
+                    $"'{sourceFileName}' matches {files.Count} files in the coverage report. Pass a longer path to pick one.",
+                    files);
+            candidates = candidates.Where(c => string.Equals(c.File, exact[0], StringComparison.OrdinalIgnoreCase)).ToList();
+            files = exact;
+        }
+
+        var matchedClasses = candidates.Select(c => c.Element).ToList();
+        // Report the path that matched, so the caller sees which file the numbers are for.
+        var matchedFile = files[0];
 
         var classes = new List<FileCoverageClass>();
         var allMeetTarget = true;
@@ -138,7 +160,41 @@ public class CoberturaService : ICoberturaService
             classes.Add(new FileCoverageClass(className, Math.Round(lineRate, 4), Math.Round(branchRate, 4), meetsTarget, methods));
         }
 
-        return new FileCoverageResult(sourceFileName, allMeetTarget, classes);
+        return new FileCoverageResult(matchedFile, allMeetTarget, classes);
+    }
+
+    internal static string NormalizePath(string path) => path.Trim().Replace('\\', '/').TrimEnd('/');
+
+    // Checked by hand rather than with Path.IsPathRooted: reports written on Windows are
+    // read on Linux in CI and the other way round, so both shapes must be recognised anywhere.
+    private static bool IsAbsolute(string path) =>
+        path.StartsWith('/') || (path.Length > 2 && char.IsLetter(path[0]) && path[1] == ':' && path[2] == '/');
+
+    private static bool SamePath(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+    // True when `path` ends with all of `tail`'s segments, so "Service.cs" does not match
+    // "Services/CoberturaService.cs" the way a plain EndsWith did.
+    private static bool EndsWithSegments(string path, string tail) =>
+        path.EndsWith("/" + tail, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsExactMatch(string file, string requested, IReadOnlyList<string> sourceRoots) =>
+        SamePath(file, requested)
+        || (!IsAbsolute(file) && sourceRoots.Any(root => SamePath($"{root}/{file}", requested)));
+
+    /// <summary>
+    /// Whether a report path (relative to a &lt;source&gt; root, or absolute) is the file the
+    /// caller asked for. The caller may pass an absolute path (what GetSourceFiles returns),
+    /// a repo-relative path, or a bare file name; matching is on whole path segments.
+    /// </summary>
+    internal static bool PathMatches(string file, string requested, IReadOnlyList<string> sourceRoots)
+    {
+        if (file.Length == 0 || requested.Length == 0) return false;
+
+        // With the report's roots known, an absolute request can be compared exactly.
+        if (IsAbsolute(requested) && !IsAbsolute(file) && sourceRoots.Count > 0)
+            return IsExactMatch(file, requested, sourceRoots);
+
+        return SamePath(file, requested) || EndsWithSegments(file, requested) || EndsWithSegments(requested, file);
     }
 
     public UncoveredBranchesResult GetUncoveredBranches(string coberturaXmlPath, string methodName)

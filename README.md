@@ -240,7 +240,7 @@ Or point directly at the compiled executable:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `coberturaXmlPath` | string | Yes | Path to `coverage.cobertura.xml` (falls back to `.mcp-coverage/.coverage-state` if not found) |
-| `sourceFileName` | string | Yes | Source file name to look up (e.g., `ExampleService.cs`) |
+| `sourceFileName` | string | Yes | File to look up: an absolute path (as `GetSourceFiles` returns), a repo-relative path (`Services/ExampleService.cs`) or a bare name (`ExampleService.cs`). Matched on whole path segments; a bare name found in several folders returns `ambiguous` with the candidates. The response's `sourceFile` is the path that matched. |
 | `sessionId` | string | No | Resolves session-scoped state file for concurrent isolation. |
 | `targetRate` | double | No | Coverage threshold (0.0–1.0) used to compute `allMeetTarget`. Default `0.8`. |
 
