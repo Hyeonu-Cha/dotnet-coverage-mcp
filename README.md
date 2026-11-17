@@ -26,7 +26,7 @@ This server lets an AI assistant run unit tests, collect coverage data, and anal
 The server starts as a console process and communicates over **stdio** using the MCP protocol. An MCP-compatible client (Claude Code, Gemini CLI, etc.) launches the process and calls its tools as if they were functions.
 
 ```
-AI Client  <--stdio/MCP-->  dotnet-coverage-mcp  <--shell-->  dotnet test + reportgenerator
+AI Client  <--stdio/MCP-->  dotnet-coverage-mcp  <--shell-->  dotnet test
 ```
 
 ## Available Tools
@@ -36,7 +36,7 @@ MCP clients list these tools in snake_case (`run_tests_with_coverage`, `get_file
 | Tool | Description |
 |------|-------------|
 | `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` project. For a folder or project, files that are not test targets (entry points, DI registration, generated code, data-only models, test projects) are left out and listed under `excluded` with the reason; a `.csproj` scope also stops at nested projects. Returns file metadata (lines, method count) and smart batches grouped by `lineBudget`. |
-| `RunTestsWithCoverage` | Run `dotnet test` with code coverage (coverlet on VSTest; Microsoft's CodeCoverage extension when `global.json` selects Microsoft.Testing.Platform), generate a JSON summary via `reportgenerator`. Returns pass/fail/skip counts and paths to `Summary.json` and `coverage.cobertura.xml`. Distinguishes `testsFailed` (with each failure's message and stack, coverage kept), `noTestsMatched`, and `buildError` (compiler errors only). Supports `forceRestore` and `sessionId` for concurrent isolation. |
+| `RunTestsWithCoverage` | Run `dotnet test` with code coverage (coverlet on VSTest; Microsoft's CodeCoverage extension when `global.json` selects Microsoft.Testing.Platform). Returns pass/fail/skip counts and the path to the Cobertura XML that every other coverage tool reads. Distinguishes `testsFailed` (with each failure's message and stack, coverage kept), `noTestsMatched`, and `buildError` (compiler errors only). Supports `forceRestore` and `sessionId` for concurrent isolation. |
 | `GetCoverageSummary` | Summarise class/method coverage from the Cobertura XML, sorted worst-first by branch coverage. Optional `belowTarget`/`topN`/`methodsPerClass` filters trim the response to what still needs work. |
 | `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes meet the configured `targetRate` for both line and branch coverage; default 0.8). Supports `sessionId`. |
 | `DescribeTestTarget` | For a source file, per class: constructor dependencies with how to provide each in a test (mock, `NullLogger`, `Options.Create`, real instance for sealed/concrete classes, SQLite for a `DbContext`), public/internal methods with signatures and decision points, calls a test can't control (`DateTime.Now`, `File.*`, `Guid.NewGuid()`...) with the usual seam, a suggested test type with reasons, and existing test files. Syntax-only. |
@@ -63,7 +63,7 @@ For projects with many source files, the recommended workflow is:
 4. **Write tests** — Use `AppendTestCode` to add test methods
 5. **Re-run and diff** — Run tests once, call `GetCoverageDiff` to verify improvement
 6. **Repeat** — Continue until batch files meet the target rate (default 80%) or 3 cycles with no improvement, then move to next batch
-7. **Clean up** — Once the goal is reached, call `CleanupSession` to remove `TestResults-{hash}/`, `coveragereport-{hash}/`, and session state files. These are **not** deleted automatically — they persist until `CleanupSession` is called (or until a time-based cleanup via `maxAgeMinutes`).
+7. **Clean up** — Once the goal is reached, call `CleanupSession` to remove `TestResults-{hash}/` and session state files. These are **not** deleted automatically — they persist until `CleanupSession` is called (or until a time-based cleanup via `maxAgeMinutes`).
 
 This minimises `dotnet test` invocations (the main bottleneck) while still tracking per-file progress.
 
@@ -71,7 +71,7 @@ This minimises `dotnet test` invocations (the main bottleneck) while still track
 
 Multiple AI agents can run in parallel by passing a `sessionId` to each tool call, which isolates their coverage artifacts:
 
-- **Isolated output directories** — `RunTestsWithCoverage` creates `TestResults-{hash}/` and `coveragereport-{hash}/` per session, preventing one agent from deleting another's XML mid-parse
+- **Isolated output directories** — `RunTestsWithCoverage` creates `TestResults-{hash}/` per session, preventing one agent from deleting another's XML mid-parse
 - **Scoped state files** — Coverage state is written to `.mcp-coverage/.coverage-state-{hash}`, so `ResolveCoberturaPath` resolves to the correct XML for each session
 - **Scoped baselines** — `GetCoverageDiff` stores baselines as `.coverage-prev-{hash}.xml` per session
 - **Atomic writes** — All file writes (state files and test code) use write-to-temp-then-rename to prevent corruption from race conditions or process crashes
@@ -84,7 +84,6 @@ Without `sessionId`, tools use shared defaults — safe for single-agent use.
 
 - **.NET 10 SDK (or later)** — [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
 - **A coverage collector in the test project.** On VSTest (the default), `coverlet.collector`. On Microsoft.Testing.Platform, `Microsoft.Testing.Extensions.CodeCoverage`, plus `Microsoft.Testing.Extensions.TrxReport` for per-failure details. MTP is used when the repository's `global.json` sets `"test": { "runner": "Microsoft.Testing.Platform" }`, which the .NET 10 SDK requires for MTP projects anyway. `GetTestEnvironment` reports what a project has and what is missing.
-- **reportgenerator** global tool — the server shells out to it to render coverage reports (installed in the [Install](#install) step below)
 - An MCP-compatible client (Claude Code, Gemini CLI, etc.)
 - **`COVERAGE_MCP_ALLOWED_ROOT`** — recommended. Set to your repository root to restrict every tool's filesystem access to that subtree. Any path passed by the client outside this root is rejected with `pathNotAllowed`. When unset, the server logs a warning once and accepts any path (backward-compatible, but not recommended for shared environments).
 
@@ -98,12 +97,6 @@ Install the server as a global .NET tool from NuGet:
 
 ```bash
 dotnet tool install --global dotnet-coverage-mcp
-```
-
-The server depends on the **reportgenerator** global tool to render coverage reports — install it too:
-
-```bash
-dotnet tool install --global dotnet-reportgenerator-globaltool
 ```
 
 After install, the `dotnet-coverage-mcp` command is on your PATH.
@@ -229,13 +222,12 @@ Or point directly at the compiled executable:
 ### `RunTestsWithCoverage`
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `testProjectPath` | string | Yes | Path to the `.csproj` test project. Resolved to a rooted path and required to end in `.csproj`; anything else (e.g. a CLI option) is rejected with `invalidParameter`. |
+| `testProjectPath` | string | Yes | Path to the `.csproj` test project. Resolved to a rooted path and required to end in `.csproj` and exist; anything else (e.g. a CLI option) is rejected with `invalidParameter` or `fileNotFound`. |
 | `filter` | string | No | Passed to `dotnet test --filter`. A plain name matches tests whose fully qualified name contains it (`OrderServiceTests`, `OrderServiceTests.PlacesOrder`); full VSTest expressions also work (`OrderTests\|PaymentTests`, `Category=Unit`). Omit or pass `*` to run every test. |
 | `workingDir` | string | No | Working directory; defaults to the project directory |
 | `forceRestore` | bool | No | When `true`, skips the `--no-restore` flag. Use after scaffolding a new test project or adding NuGet packages. |
-| `sessionId` | string | No | Isolates output directories (`TestResults-{hash}/`, `coveragereport-{hash}/`) and state files for concurrent multi-agent use. |
+| `sessionId` | string | No | Isolates the output directory (`TestResults-{hash}/`) and state files for concurrent multi-agent use. |
 | `includeClass` | string | No | Restrict coverage collection to types matching this name (coverlet `Include` filter, applied via a generated runsettings file passed with `--settings`). Independent of `filter` — pass an explicit value to scope coverage; omit it to collect coverage for everything the run touches. Namespace-qualified names are not supported. |
-| `skipReport` | bool | No | When `true`, skips the `reportgenerator` JSON-summary step and returns only the Cobertura XML path. Faster for the inner test loop, where `GetCoverageSummary`/`GetFileCoverage`/`GetUncoveredBranches`/`GetCoverageDiff` all read the Cobertura XML directly. Leave `false` (default) only if you want the `reportgenerator` `Summary.json` for other tooling. |
 
 ### `GetCoverageSummary`
 | Parameter | Type | Required | Description |

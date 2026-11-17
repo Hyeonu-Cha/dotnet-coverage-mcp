@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **`reportgenerator` is no longer needed.** `RunTestsWithCoverage` used to run it
+  after every passing test run to write a `Summary.json` that only
+  `GetCoverageSummary` read, and `GetCoverageSummary` now reads the Cobertura XML.
+  Without the global tool installed, a default run failed with `reportFailed` even
+  though the tests had passed. The step is gone, along with the `skipReport`
+  parameter (clients that still pass it are not rejected) and the
+  `COVERAGE_MCP_REPORTGEN_TIMEOUT_MS` setting. The result now gives only the
+  Cobertura XML path.
+
 ### Fixed
 - `GetCoverageSummary` returned `parseFailed` on every real run. It parsed a
   `Summary.json` shape (`assemblies[].classes[].methods[]` with `linecoverage`)
@@ -17,15 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compiler-generated-folded model the per-file tools already use, so it keeps its
   method-level, worst-branch-first output. Its first argument is now
   `coberturaXmlPath` (with the usual `.coverage-state` / `sessionId` fallback that
-  `GetFileCoverage` and friends have), which also means it works when the run used
-  `skipReport: true`.
+  `GetFileCoverage` and friends have).
 - `AppendTestCode` wrote the supplied code into whatever file `testFilePath`
-  pointed at, including a non-`.cs` file such as `settings.json`, a `.csv` or a
-  production source file — corrupting it and reporting success. It now requires a
-  `.cs` target and rejects anything else with `invalidParameter`, leaving the file
-  untouched.
-- Restored the `## [2.0.0]` heading in this changelog, dropped by mistake while
-  adding the entry above it.
+  pointed at, including a non-`.cs` file such as `settings.json` or a `.csv`,
+  corrupting it and reporting success. It now requires a `.cs` target and rejects
+  anything else with `invalidParameter`, leaving the file untouched. Any `.cs` file
+  is still accepted: telling a test file from a production one is up to the client.
 - `CleanupSession` with a `sessionId` also deleted the **unsuffixed**
   `TestResults`/`coveragereport` directories, wiping output owned by a single-agent run or by
   `dotnet test` / Visual Studio (which write `TestResults` by default). Session-scoped cleanup
@@ -41,11 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RunTestsWithCoverage` passed `testProjectPath` to `dotnet test` verbatim as its
   first argument, so a value like `--help` or `-bl:evil.binlog` was parsed as a
   CLI/MSBuild option (`--help` printed usage; an MSBuild logger switch wrote a file
-  outside the allowed root). The path is now resolved to a rooted path — which
-  `dotnet test` always treats as the project, never an option — and must end in
-  `.csproj`; anything else is rejected with `invalidParameter` before any process
-  starts. A relative `testProjectPath` is also resolved now, instead of failing
-  with `MSB1009`.
+  outside the allowed root). The path is now resolved to a rooted path, must end in
+  `.csproj`, and must exist; anything else is rejected with `invalidParameter` or
+  `fileNotFound` before any process starts. The existence check matters on Linux and
+  macOS, where `/p:Foo=bar.csproj` is already a rooted path and `dotnet` would still
+  read it as a property switch. A relative `testProjectPath` is also resolved now,
+  instead of failing with `MSB1009`.
 
 ## [2.0.0] - 2026-11-17
 

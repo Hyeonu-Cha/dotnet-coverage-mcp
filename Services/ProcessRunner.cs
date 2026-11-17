@@ -11,22 +11,17 @@ public enum TestRunOutcome { Success, TestsFailed, NoTestsMatched, BuildError, M
 public record TestRunResult(
     TestRunOutcome Outcome, string Output, string Error, int ExitCode, string? CoverageXmlPath,
     TestSummary? Summary = null);
-public record ReportResult(bool Success, string? SummaryPath, string? ErrorDetail);
 
 public interface IProcessRunner
 {
     Task<TestRunResult> RunDotnetTestAsync(
         string testProjectPath, string? filter, string resultsDir,
         string workingDir, bool forceRestore, string? includeClass, IProgress<string>? progress, CancellationToken ct);
-
-    Task<ReportResult> RunReportGeneratorAsync(
-        string xmlPath, string reportDir, string workingDir, CancellationToken ct = default);
 }
 
 public class ProcessRunner : IProcessRunner
 {
     private readonly ILogger<ProcessRunner> _logger;
-    private static readonly int ReportGeneratorTimeoutMs = ReadPositiveIntEnv("COVERAGE_MCP_REPORTGEN_TIMEOUT_MS", 60_000);
     private static readonly int DotnetTestTimeoutMs = ReadPositiveIntEnv("COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS", 600_000);
     // Per-test hang timeout passed to `dotnet test --blame-hang-timeout`. A single test
     // exceeding this aborts the whole run and writes a hang dump, so make it configurable:
@@ -369,64 +364,5 @@ public class ProcessRunner : IProcessRunner
         {
             return "";
         }
-    }
-
-    public async Task<ReportResult> RunReportGeneratorAsync(
-        string xmlPath, string reportDir, string workingDir, CancellationToken ct = default)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "reportgenerator",
-            WorkingDirectory = workingDir,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false
-        };
-
-        psi.ArgumentList.Add($"-reports:{xmlPath}");
-        psi.ArgumentList.Add($"-targetdir:{reportDir}");
-        psi.ArgumentList.Add("-reporttypes:JsonSummary");
-
-        _logger.LogInformation("Starting reportgenerator for {XmlPath}", xmlPath);
-        using var process = Process.Start(psi) ?? throw new Exception("Failed to start reportgenerator");
-        var outTask = process.StandardOutput.ReadToEndAsync();
-        var errTask = process.StandardError.ReadToEndAsync();
-
-        // Combine caller's token with our timeout
-        using var timeoutCts = new CancellationTokenSource(ReportGeneratorTimeoutMs);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
-
-        using var ctReg = linkedCts.Token.Register(() =>
-        {
-            try { process.Kill(entireProcessTree: true); } catch { }
-        });
-
-        try
-        {
-            await process.WaitForExitAsync(linkedCts.Token);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // Process was killed by ctReg — drain the read tasks so they can't surface
-            // as UnobservedTaskException once `process` is disposed on return.
-            await DrainAsync(outTask);
-            await DrainAsync(errTask);
-            return new ReportResult(false, null, "Report generation was cancelled.");
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogWarning("reportgenerator timed out after {Timeout}s, killing process", ReportGeneratorTimeoutMs / 1000);
-            await DrainAsync(outTask);
-            await DrainAsync(errTask);
-            return new ReportResult(false, null, $"reportgenerator timed out after {ReportGeneratorTimeoutMs / 1000}s");
-        }
-
-        await outTask;
-        await errTask;
-
-        var summaryPath = Path.Combine(reportDir, "Summary.json");
-        return File.Exists(summaryPath)
-            ? new ReportResult(true, summaryPath, null)
-            : new ReportResult(false, null, "Report generation failed");
     }
 }

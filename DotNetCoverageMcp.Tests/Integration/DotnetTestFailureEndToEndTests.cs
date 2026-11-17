@@ -44,7 +44,7 @@ public class DotnetTestFailureEndToEndTests : IClassFixture<SampleProjectFixture
             }
             """);
 
-        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, skipReport: true);
+        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath);
 
         using var doc = JsonDocument.Parse(result);
         var root = doc.RootElement;
@@ -62,7 +62,7 @@ public class DotnetTestFailureEndToEndTests : IClassFixture<SampleProjectFixture
     [Fact]
     public async Task FilterMatchingNothing_ReturnsNoTestsMatched()
     {
-        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, "DoesNotExist", skipReport: true);
+        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, "DoesNotExist");
 
         JsonDocument.Parse(result).RootElement.GetProperty("errorType").GetString()
             .Should().Be("noTestsMatched", because: result);
@@ -73,7 +73,7 @@ public class DotnetTestFailureEndToEndTests : IClassFixture<SampleProjectFixture
     {
         using var _ = AddTestFile("Broken.cs", "namespace SampleLib.Tests; public class Broken { int x = }");
 
-        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, skipReport: true);
+        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath);
 
         using var doc = JsonDocument.Parse(result);
         doc.RootElement.GetProperty("errorType").GetString().Should().Be("buildError", because: result);
