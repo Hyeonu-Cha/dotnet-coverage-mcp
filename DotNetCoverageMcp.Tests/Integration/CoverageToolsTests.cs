@@ -253,7 +253,12 @@ public class CoverageToolsTests : IDisposable
 
         await _sut.RunTestsWithCoverage(_proj, "Ns.Class", "/dir");
 
-        _fileService.Verify(f => f.SafeDelete(It.Is<string>(s => s.Contains("TestResults"))), Times.Once);
+        // Its own folder, never the bare TestResults that dotnet test and Visual Studio use.
+        _fileService.Verify(f => f.SafeDelete(Path.Combine("/dir", "TestResults-mcp")), Times.Once);
+        _fileService.Verify(f => f.SafeDelete(Path.Combine("/dir", "TestResults")), Times.Never);
+        _processRunner.Verify(p => p.RunDotnetTestAsync(
+            It.IsAny<string>(), It.IsAny<string?>(), Path.Combine("/dir", "TestResults-mcp"), It.IsAny<string>(),
+            It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // --- GetCoverageSummary ---
