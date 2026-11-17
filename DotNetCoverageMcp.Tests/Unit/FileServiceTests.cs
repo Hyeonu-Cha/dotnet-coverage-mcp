@@ -31,15 +31,19 @@ public class FileServiceTests : IDisposable
     // the path is denied" (seen intermittently in ConcurrencyTests and possible for any
     // AppendTestCode call). On Linux and macOS the replace succeeds anyway.
     [Fact]
-    public async Task AtomicWriteFile_TargetBrieflyHeldOpen_RetriesInsteadOfFailing()
+    public void AtomicWriteFile_TargetBrieflyHeldOpen_RetriesInsteadOfFailing()
     {
         var path = Path.Combine(_tempDir, "held.txt");
         File.WriteAllText(path, "old");
         var handle = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var release = Task.Delay(100).ContinueWith(_ => handle.Dispose());
+        // A dedicated thread, not a thread-pool continuation: with test classes running in
+        // parallel on a small CI runner, a pool callback can start long after 100 ms, past
+        // the retry budget (it did on windows-latest).
+        var releaser = new Thread(() => { Thread.Sleep(100); handle.Dispose(); }) { IsBackground = true };
+        releaser.Start();
 
-        var write = Task.Run(() => _sut.AtomicWriteFile(path, "new"));
-        await Task.WhenAll(write, release);
+        _sut.AtomicWriteFile(path, "new");
+        releaser.Join();
 
         File.ReadAllText(path).Should().Be("new");
         Directory.GetFiles(_tempDir, ".tmp-*").Should().BeEmpty("the temp file is moved, not left behind");
