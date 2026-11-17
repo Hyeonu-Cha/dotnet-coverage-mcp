@@ -298,7 +298,7 @@ Methods are ranked by how many uncovered lines and branch outcomes they hold, co
 ### `AppendTestCode`
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `testFilePath` | string | Yes | Full path to the target `.cs` test file |
+| `testFilePath` | string | Yes | Full path to the target `.cs` test file. A path that is not a `.cs` file is rejected with `invalidParameter`. |
 | `codeToAppend` | string | Yes | C# code to insert |
 | `insertAfterAnchor` | string | No | If provided, inserts code after the last member containing this string (whitespace-tolerant), in whichever class holds it. If omitted, appends at the end of the target class. |
 | `targetClass` | string | No | Simple name of the class to insert into, nested classes included. If omitted, the file's test class is used: the last top-level class with test attributes (`[Fact]`, `[Test]`, `[TestMethod]`, `[TestFixture]`, ...), else the last top-level class. |

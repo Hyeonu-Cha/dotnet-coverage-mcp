@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `coberturaXmlPath` (with the usual `.coverage-state` / `sessionId` fallback that
   `GetFileCoverage` and friends have), which also means it works when the run used
   `skipReport: true`.
+- `AppendTestCode` wrote the supplied code into whatever file `testFilePath`
+  pointed at, including a non-`.cs` file such as `settings.json`, a `.csv` or a
+  production source file — corrupting it and reporting success. It now requires a
+  `.cs` target and rejects anything else with `invalidParameter`, leaving the file
+  untouched.
+- Restored the `## [2.0.0]` heading in this changelog, dropped by mistake while
+  adding the entry above it.
+
+## [2.0.0] - 2026-11-17
 
 ### Upgrading from 1.x
 - **.NET 10 or later is required** to run the tool (it was .NET 9).

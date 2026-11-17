@@ -365,11 +365,34 @@ public class CoverageToolsTests
         AssertError(result, "fileNotFound");
     }
 
+    [Theory]
+    [InlineData("settings.json")]
+    [InlineData("notes.txt")]
+    [InlineData("data.csv")]
+    public async Task AppendTestCode_NonCsFile_ReturnsErrorAndDoesNotWrite(string fileName)
+    {
+        // Regression: the string fallback used to append "test code" into any file the path
+        // pointed at — corrupting a non-.cs file and reporting success.
+        var path = Path.Combine(Path.GetTempPath(), $"append-{Guid.NewGuid():N}-{fileName}");
+        const string original = "{ \"keep\": true }";
+        File.WriteAllText(path, original);
+        try
+        {
+            var result = await _sut.AppendTestCode(path, "public int Pwned = 1;");
+
+            AssertError(result, "invalidParameter");
+            File.ReadAllText(path).Should().Be(original); // untouched
+            _codeInserter.Verify(c => c.InsertCodeAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public async Task AppendTestCode_AnchorNotFound_ReturnsError()
     {
         // Create a real temp file so File.Exists passes
-        var tempFile = Path.GetTempFileName();
+        var tempFile = CreateTempCsFile();
         try
         {
             _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
@@ -387,7 +410,7 @@ public class CoverageToolsTests
     [Fact]
     public async Task AppendTestCode_SyntaxError_ReturnsSyntaxError()
     {
-        var tempFile = Path.GetTempFileName();
+        var tempFile = CreateTempCsFile();
         try
         {
             _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
@@ -406,7 +429,7 @@ public class CoverageToolsTests
     [Fact]
     public async Task AppendTestCode_RoslynSuccess_ReturnsRoslynLabel()
     {
-        var tempFile = Path.GetTempFileName();
+        var tempFile = CreateTempCsFile();
         try
         {
             _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
@@ -492,5 +515,14 @@ public class CoverageToolsTests
     {
         var doc = JsonDocument.Parse(json);
         doc.RootElement.GetProperty("errorType").GetString().Should().Be(expectedErrorType);
+    }
+
+    // AppendTestCode now requires a .cs target, so these tests need a real .cs file on disk
+    // (not the .tmp file that Path.GetTempFileName creates).
+    private static string CreateTempCsFile()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"append-{Guid.NewGuid():N}.cs");
+        File.WriteAllText(path, "class C { }");
+        return path;
     }
 }
