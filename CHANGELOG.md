@@ -54,6 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   list the tools in snake_case, and CONTRIBUTING documents the
   `<type>/<summary>` branch naming rule.
 
+- `GetFileCoverage` could not find a file by the absolute path `GetSourceFiles`
+  returns (`noMatch`), because the report stores paths relative to its
+  `<source>` root. It also matched on a plain suffix, so `Service.cs` pulled in
+  `CoberturaService.cs` and `FileService.cs`, and `OrderController.cs` pulled
+  in `AdminOrderController.cs`, giving a wrong `allMeetTarget`. It now accepts
+  absolute, repo-relative and bare names, matches on whole path segments, and
+  returns `ambiguous` with the candidate paths when a bare name exists in
+  several folders. `sourceFile` in the result is the path that matched.
+
 ### Added
 - `targetClass` parameter on `AppendTestCode` to name the class to insert into,
   nested classes included. When it cannot be honoured the call fails with
