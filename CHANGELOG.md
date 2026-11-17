@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   untouched.
 - Restored the `## [2.0.0]` heading in this changelog, dropped by mistake while
   adding the entry above it.
+- `CleanupSession` with a `sessionId` also deleted the **unsuffixed**
+  `TestResults`/`coveragereport` directories, wiping output owned by a single-agent run or by
+  `dotnet test` / Visual Studio (which write `TestResults` by default). Session-scoped cleanup
+  now removes only that session's own `TestResults-{hash}` / `coveragereport-{hash}` artifacts;
+  the age-based sweep (no `sessionId`) remains the path that clears unsuffixed dirs.
 - Path validation could be escaped with a symlink or junction. `COVERAGE_MCP_ALLOWED_ROOT`
   was enforced with a purely lexical check, so a link **inside** the root that pointed
   **outside** it (`root/link/secret.cs`) passed, letting a read-only tool return an arbitrary

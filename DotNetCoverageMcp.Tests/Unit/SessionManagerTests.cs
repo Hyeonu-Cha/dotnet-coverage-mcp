@@ -269,6 +269,22 @@ public class SessionManagerTests : IDisposable
     }
 
     [Fact]
+    public void Cleanup_WithSessionId_DeletesOnlyItsOwnArtifactDirs_NotUnsuffixed()
+    {
+        // Regression: a session-scoped cleanup also deleted the unsuffixed TestResults/
+        // coveragereport dirs, wiping a single-agent run's (or dotnet test's / Visual Studio's)
+        // output that this session does not own.
+        var key = _sut.ComputeKey("agentA");
+
+        _sut.Cleanup(_tempDir, "agentA", 120);
+
+        _fileService.Verify(f => f.SafeDelete(Path.Combine(_tempDir, $"TestResults-{key}")), Times.Once);
+        _fileService.Verify(f => f.SafeDelete(Path.Combine(_tempDir, $"coveragereport-{key}")), Times.Once);
+        _fileService.Verify(f => f.SafeDelete(Path.Combine(_tempDir, "TestResults")), Times.Never);
+        _fileService.Verify(f => f.SafeDelete(Path.Combine(_tempDir, "coveragereport")), Times.Never);
+    }
+
+    [Fact]
     public void Cleanup_SessionIsolation_DoesNotTouchOtherSessions()
     {
         var stateDir = Path.Combine(_tempDir, ".mcp-coverage");
