@@ -87,6 +87,8 @@ If `RunTestsWithCoverage` returns a build error after writing tests:
 - Use your editor (Edit tool) to fix the syntax error — do NOT use `AppendTestCode` to fix existing code
 - If the same test fails 3 times, delete it and move on
 
+If it returns `testsFailed`, the build succeeded and an assertion failed: fix the test named in `failures`. Coverage from the passing tests is still at `coberturaXmlPath`.
+
 ### 7. Re-run & Diff
 
 Run tests once (step 1 again), then call `GetCoverageDiff` to verify improvement. Call `GetFileCoverage` for each file to update per-file status.

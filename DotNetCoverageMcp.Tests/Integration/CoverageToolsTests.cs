@@ -80,6 +80,76 @@ public class CoverageToolsTests
         AssertError(result, "buildError");
     }
 
+    private void SetupTestRun(TestRunResult result) =>
+        _processRunner.Setup(p => p.RunDotnetTestAsync(
+            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(result);
+
+    [Fact]
+    public async Task RunTestsWithCoverage_TestsFailed_ReturnsFailuresAndKeepsCoverage()
+    {
+        var summary = new TestSummary(3, 2, 1, 0,
+            [new TestFailure("Ns.CalcTests.Add_Fails", "Expected 1, got 2", "at Ns.CalcTests.Add_Fails()")]);
+        SetupTestRun(new TestRunResult(TestRunOutcome.TestsFailed, "", "", 1, "/coverage.xml", summary));
+
+        var result = await _sut.RunTestsWithCoverage("proj.csproj", "Ns.Class", "/dir");
+
+        AssertError(result, "testsFailed");
+        using var doc = JsonDocument.Parse(result);
+        doc.RootElement.GetProperty("failed").GetInt32().Should().Be(1);
+        doc.RootElement.GetProperty("failures")[0].GetProperty("test").GetString().Should().Be("Ns.CalcTests.Add_Fails");
+        doc.RootElement.GetProperty("coberturaXmlPath").GetString().Should().Be("/coverage.xml");
+        // Coverage of the passing tests stays usable by the per-file tools...
+        _sessionManager.Verify(s => s.SaveCoverageState("/dir", "/coverage.xml", "Ns.Class", null), Times.Once);
+        // ...but there is no point rendering a report for a broken run.
+        _processRunner.Verify(p => p.RunReportGeneratorAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RunTestsWithCoverage_NoTestsMatched_ReturnsErrorNamingFilter()
+    {
+        SetupTestRun(new TestRunResult(TestRunOutcome.NoTestsMatched, "", "", 0, "/coverage.xml", new TestSummary(0, 0, 0, 0, [])));
+
+        var result = await _sut.RunTestsWithCoverage("proj.csproj", "DoesNotExist", "/dir");
+
+        AssertError(result, "noTestsMatched");
+        result.Should().Contain("DoesNotExist");
+        _sessionManager.Verify(s => s.SaveCoverageState(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RunTestsWithCoverage_Success_ReportsCounts()
+    {
+        SetupTestRun(new TestRunResult(TestRunOutcome.Success, "", "", 0, "/coverage.xml", new TestSummary(5, 4, 0, 1, [])));
+
+        var result = await _sut.RunTestsWithCoverage("proj.csproj", null, "/dir", skipReport: true);
+
+        result.Should().Contain("Passed: 4, Failed: 0, Skipped: 1.");
+    }
+
+    [Fact]
+    public void BuildErrorDetail_DeduplicatesAndStripsProjectSuffix()
+    {
+        const string output = """
+              Determining projects to restore...
+            C:\src\T\Broken.cs(2,1): error CS1002: ; expected [C:\src\T\T.csproj]
+            Build FAILED.
+            C:\src\T\Broken.cs(2,1): error CS1002: ; expected [C:\src\T\T.csproj]
+                0 Warning(s)
+            """;
+
+        CoverageTools.BuildErrorDetail(output, "").Should().Be(@"C:\src\T\Broken.cs(2,1): error CS1002: ; expected");
+    }
+
+    [Fact]
+    public void BuildErrorDetail_NoErrorLines_FallsBackToTail()
+    {
+        CoverageTools.BuildErrorDetail("some output", "sdk exploded").Should().Contain("sdk exploded").And.Contain("some output");
+    }
+
     [Fact]
     public async Task RunTestsWithCoverage_NoCoverageXml_ReturnsError()
     {

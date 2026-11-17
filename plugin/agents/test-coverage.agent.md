@@ -111,7 +111,8 @@ If not a .NET test context, explain your specialization and suggest general assi
 
 1. If `reportgenerator` is missing, install it before running any coverage tool
 2. If `RunTestsWithCoverage` returns a **build error** after writing tests, use Edit to fix the syntax error in the test file — do NOT use `AppendTestCode` to fix it. If the same test fails 3 times, remove it and move on
-3. If `GetUncoveredBranches` returns no results, try a shorter partial method name
-4. If coverage doesn't improve after writing a test, check that the mock setup matches the branch condition
-5. For complex branches (async, private, static), note them as blocked after reasonable attempts
-6. If tempted to check coverage after one test: resist it. Batch 3–5 tests first
+3. If `RunTestsWithCoverage` returns **testsFailed**, an assertion failed: fix the test named in `failures` (message and stack are included). Coverage from the passing tests is still available at `coberturaXmlPath`
+4. If `GetUncoveredBranches` returns no results, try a shorter partial method name
+5. If coverage doesn't improve after writing a test, check that the mock setup matches the branch condition
+6. For complex branches (async, private, static), note them as blocked after reasonable attempts
+7. If tempted to check coverage after one test: resist it. Batch 3–5 tests first

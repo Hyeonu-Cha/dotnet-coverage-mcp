@@ -102,6 +102,14 @@ If `RunTestsWithCoverage` returns a build error after writing tests:
 
 **Do NOT call `AppendTestCode` to fix errors** — use Edit to surgically fix the broken line instead.
 
+### Step 4.6: Handle failing tests
+If `RunTestsWithCoverage` returns `errorType: "testsFailed"`, the build succeeded but a test assertion failed:
+1. Read `failures` — each entry has the test name, assertion message, and the top frames of the stack in your code
+2. Fix the test (usually a wrong expectation or mock setup) with Edit; do not delete it just to make the run pass
+3. The response still carries `coberturaXmlPath`: coverage from the passing tests is valid, so `GetFileCoverage` works before re-running
+
+If it returns `errorType: "noTestsMatched"`, the `filter` selected nothing. Omit it to run every test, or use a shorter name.
+
 ### Step 5: Re-run and check batch-level progress
 Call `RunTestsWithCoverage` **once** with the same broad filter.
 Call `GetFileCoverage` for **each file in the batch** to check per-file progress.

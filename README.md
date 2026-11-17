@@ -34,7 +34,7 @@ AI Client  <--stdio/MCP-->  dotnet-coverage-mcp  <--shell-->  dotnet test + repo
 | Tool | Description |
 |------|-------------|
 | `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` project. Returns file metadata (lines, method count) and smart batches grouped by `lineBudget`. |
-| `RunTestsWithCoverage` | Run `dotnet test` with XPlat Code Coverage, generate a JSON summary via `reportgenerator`. Returns paths to `Summary.json` and `coverage.cobertura.xml`. Supports `forceRestore` and `sessionId` for concurrent isolation. |
+| `RunTestsWithCoverage` | Run `dotnet test` with XPlat Code Coverage, generate a JSON summary via `reportgenerator`. Returns pass/fail/skip counts and paths to `Summary.json` and `coverage.cobertura.xml`. Distinguishes `testsFailed` (with each failure's message and stack, coverage kept), `noTestsMatched`, and `buildError` (compiler errors only). Supports `forceRestore` and `sessionId` for concurrent isolation. |
 | `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data sorted worst-first by branch coverage. Optional `belowTarget`/`topN`/`methodsPerClass` filters trim the response to what still needs work. |
 | `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes meet the configured `targetRate` for both line and branch coverage; default 0.8). Supports `sessionId`. |
 | `GetUncoveredBranches` | Find uncovered branch conditions for methods matching a given name. Returns all matching methods with partial name support. Supports `sessionId`. |

@@ -6,9 +6,11 @@ namespace DotNetCoverageMcp.Services;
 
 // Outcome of a test run, reported as a typed enum so consumers branch on a stable
 // signal instead of string-matching the Error text (which used to carry sentinels).
-public enum TestRunOutcome { Success, BuildError, Cancelled, Timeout }
+public enum TestRunOutcome { Success, TestsFailed, NoTestsMatched, BuildError, Cancelled, Timeout }
 
-public record TestRunResult(TestRunOutcome Outcome, string Output, string Error, int ExitCode, string? CoverageXmlPath);
+public record TestRunResult(
+    TestRunOutcome Outcome, string Output, string Error, int ExitCode, string? CoverageXmlPath,
+    TestSummary? Summary = null);
 public record ReportResult(bool Success, string? SummaryPath, string? ErrorDetail);
 
 public interface IProcessRunner
@@ -112,16 +114,19 @@ public class ProcessRunner : IProcessRunner
 
             _logger.LogInformation("dotnet test exited with code {ExitCode} for {Project}", process.ExitCode, testProjectPath);
 
+            // Look for results whatever the exit code: a failing test exits non-zero but
+            // still leaves coverage for every test that ran.
             string? coverageXmlPath = null;
-            if (process.ExitCode == 0 && Directory.Exists(resultsDir))
+            TestSummary? summary = null;
+            if (Directory.Exists(resultsDir))
             {
-                var xmlPaths = Directory.GetFiles(resultsDir, "coverage.cobertura.xml", SearchOption.AllDirectories);
-                if (xmlPaths.Length > 0)
-                    coverageXmlPath = xmlPaths[0];
+                coverageXmlPath = Directory.GetFiles(resultsDir, "coverage.cobertura.xml", SearchOption.AllDirectories)
+                    .FirstOrDefault();
+                summary = TrxReader.Read(Directory.GetFiles(resultsDir, "*.trx", SearchOption.AllDirectories));
             }
 
-            var runOutcome = process.ExitCode == 0 ? TestRunOutcome.Success : TestRunOutcome.BuildError;
-            return new TestRunResult(runOutcome, output, error, process.ExitCode, coverageXmlPath);
+            return new TestRunResult(
+                Classify(process.ExitCode, summary), output, error, process.ExitCode, coverageXmlPath, summary);
         }
         finally
         {
@@ -154,6 +159,9 @@ public class ProcessRunner : IProcessRunner
         }
 
         args.Add("--collect:XPlat Code Coverage");
+        // TRX gives exact counts and failure details; see TrxReader.
+        args.Add("--logger");
+        args.Add("trx");
         args.Add("--results-directory");
         args.Add(resultsDir);
         if (runSettingsPath != null)
@@ -163,6 +171,18 @@ public class ProcessRunner : IProcessRunner
         }
         return args;
     }
+
+    // No TRX means the run never reached test execution, i.e. the build failed. With TRX,
+    // zero tests is reported on its own: dotnet test exits 0 for it and coverlet still
+    // writes an all-zero report, which used to look like a successful run.
+    internal static TestRunOutcome Classify(int exitCode, TestSummary? summary) => summary switch
+    {
+        null => exitCode == 0 ? TestRunOutcome.Success : TestRunOutcome.BuildError,
+        { Total: 0 } => TestRunOutcome.NoTestsMatched,
+        { Failed: > 0 } => TestRunOutcome.TestsFailed,
+        // Non-zero exit with no failed test: the run was aborted, e.g. by the hang timeout.
+        _ => exitCode == 0 ? TestRunOutcome.Success : TestRunOutcome.TestsFailed
+    };
 
     internal static bool RunsAllTests(string? filter) =>
         string.IsNullOrWhiteSpace(filter) || filter.Trim() == "*";
