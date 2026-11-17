@@ -112,13 +112,16 @@ public static class TestEnvironmentDetector
             warnings.Add($"Several test frameworks are referenced ({string.Join(", ", frameworks.Select(f => f.Display))}); match the attributes used in the existing test files.");
 
         var runner = UsesMtp(csprojPath, projectDir, hasMstestSdk) ? Mtp : Vstest;
-        var coverage = CoveragePackages.FirstOrDefault(HasAnywhere);
+        // Under MTP only Microsoft's extension is driven by RunTestsWithCoverage; under VSTest, coverlet.
+        var coverage = runner == Mtp
+            ? (HasAnywhere("Microsoft.Testing.Extensions.CodeCoverage") ? "Microsoft.Testing.Extensions.CodeCoverage" : null)
+            : CoveragePackages.FirstOrDefault(HasAnywhere);
         if (coverage == null)
             warnings.Add(runner == Vstest
                 ? "No coverage collector is referenced. Add the coverlet.collector package, or RunTestsWithCoverage will return noCoverage."
-                : "No coverage extension is referenced. Add Microsoft.Testing.Extensions.CodeCoverage, or RunTestsWithCoverage will return noCoverage.");
-        else if (runner == Mtp)
-            warnings.Add("This project runs on Microsoft.Testing.Platform. RunTestsWithCoverage currently passes VSTest's `--collect` option, which this runner does not accept, so coverage collection may fail until MTP support lands.");
+                : "Microsoft.Testing.Extensions.CodeCoverage is not referenced. Add it; RunTestsWithCoverage collects coverage on Microsoft.Testing.Platform through that extension.");
+        if (runner == Mtp && !DotnetTestUsesMtp(projectDir))
+            warnings.Add("This project uses Microsoft.Testing.Platform, but no global.json sets \"test\": { \"runner\": \"Microsoft.Testing.Platform\" }. On the .NET 10 SDK and later, `dotnet test` rejects such projects in its default VSTest mode; add that setting to the repository's global.json.");
 
         var framework = frameworks.FirstOrDefault();
         var mocking = Mocking.FirstOrDefault(m => Has(m.Package)).Name;
@@ -169,10 +172,18 @@ public static class TestEnvironmentDetector
         }
 
         // MSTest.Sdk runs on MTP unless the project opts back into VSTest (checked above).
-        if (hasMstestSdk) return true;
+        return hasMstestSdk || DotnetTestUsesMtp(projectDir);
+    }
 
-        // .NET 10 SDK: global.json can switch `dotnet test` itself to MTP.
-        for (var dir = new DirectoryInfo(projectDir); dir != null; dir = dir.Parent)
+    /// <summary>
+    /// Whether `dotnet test` started in this directory runs in Microsoft.Testing.Platform mode:
+    /// the nearest global.json sets test.runner to it (.NET 10 SDK and later). This, not the
+    /// project's packages, decides the command line, because on SDK 10+ an MTP project run in
+    /// the default VSTest mode fails with "Testing with VSTest target is no longer supported".
+    /// </summary>
+    public static bool DotnetTestUsesMtp(string workingDir)
+    {
+        for (var dir = new DirectoryInfo(workingDir); dir != null; dir = dir.Parent)
         {
             var globalJson = Path.Combine(dir.FullName, "global.json");
             if (!File.Exists(globalJson)) continue;
