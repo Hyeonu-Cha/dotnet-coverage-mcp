@@ -149,7 +149,7 @@ internal sealed record CoverageModel(IReadOnlyList<string> SourceRoots, double L
 
     // One entry per line number. A lambda's line also appears in the method that creates it;
     // the two carry different branches, so branch counts add up while hits take the maximum.
-    private static List<LineCov> MergeLines(IEnumerable<LineCov> lines) =>
+    internal static List<LineCov> MergeLines(IEnumerable<LineCov> lines) =>
         lines.GroupBy(l => l.Number)
             .Select(g => new LineCov(g.Key, g.Max(l => l.Hits), g.Sum(l => l.BranchesCovered),
                 g.Sum(l => l.BranchesTotal), g.SelectMany(l => l.Missing).ToList()))

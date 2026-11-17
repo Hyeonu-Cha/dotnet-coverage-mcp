@@ -226,6 +226,33 @@ public class CoberturaServiceTests : IDisposable
     }
 
     [Fact]
+    public void GetFileCoverage_AbsolutePathThroughASymlink_ResolvesToTheReportedPath()
+    {
+        // macOS: /var/folders/... is a link to /private/var/folders/..., and coverlet records
+        // the resolved path. A repo under any symlinked folder behaves the same way.
+        var real = Path.Combine(_tempDir, "real");
+        var link = Path.Combine(_tempDir, "link");
+        Directory.CreateDirectory(real);
+        File.WriteAllText(Path.Combine(real, "Foo.cs"), "class Foo { }");
+        try { Directory.CreateSymbolicLink(link, real); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return; // Windows without symlink privilege; the CI runners on Linux and macOS cover this.
+        }
+
+        var path = WriteCoberturaXml($"""
+            <coverage>
+              <sources><source>{real.Replace('\\', '/')}/</source></sources>
+              <packages><package><classes>
+                <class name="App.Foo" filename="Foo.cs" line-rate="1" branch-rate="1"><methods/></class>
+              </classes></package></packages>
+            </coverage>
+            """);
+
+        _sut.GetFileCoverage(path, Path.Combine(link, "Foo.cs"), 0.8).SourceFile.Should().Be("Foo.cs");
+    }
+
+    [Fact]
     public void GetFileCoverage_PartialClassAcrossOneFile_IsNotAmbiguous()
     {
         // Several <class> entries for one file (nested/generated types) are one file, not many.

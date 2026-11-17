@@ -98,6 +98,33 @@ public class DotnetTestEndToEndTests : IClassFixture<SampleProjectFixture>
             .Should().Contain("50% covered");
     }
 
+    [Fact]
+    public async Task GetCoverageGaps_OnTheLibraryFolder_PointsAtTheUntakenBranches()
+    {
+        // With every fixture test run, Calculator.cs has all lines covered but four
+        // one-sided ifs (12 of 16 branch outcomes), i.e. below 80% on branches only.
+        var xmlPath = await RunAndGetCoverageXmlPath(null);
+
+        using var doc = JsonDocument.Parse(_sut.GetCoverageGaps(xmlPath, Path.Combine(_fixture.Root, "SampleLib")));
+        var root = doc.RootElement;
+        root.TryGetProperty("errorType", out _).Should().BeFalse(because: root.ToString());
+
+        root.GetProperty("filesInScope").GetInt32().Should().Be(1);
+        root.GetProperty("remaining").GetArrayLength().Should().Be(1, because: root.ToString());
+        var file = root.GetProperty("remaining")[0];
+        file.GetProperty("file").GetString().Should().EndWith("Calculator.cs");
+        file.GetProperty("linesToCover").GetInt32().Should().Be(0);
+        file.GetProperty("branchesToCover").GetInt32().Should().BeGreaterThan(0);
+        file.GetProperty("closesGap").GetBoolean().Should().BeTrue();
+
+        var methods = file.GetProperty("methods").EnumerateArray().ToList();
+        methods.Should().NotBeEmpty();
+        methods.Should().OnlyContain(m => !m.GetProperty("method").GetString()!.Contains('<'));
+        methods.Should().OnlyContain(m => m.GetProperty("uncoveredBranches").GetArrayLength() > 0);
+        methods.Should().OnlyContain(m => m.GetProperty("source").GetString()!.Contains("if ")
+                                          || m.GetProperty("source").GetString()!.Contains(" ? "));
+    }
+
     private async Task<XDocument> RunAndGetCoverageXml(string? filter) =>
         XDocument.Load(await RunAndGetCoverageXmlPath(filter));
 

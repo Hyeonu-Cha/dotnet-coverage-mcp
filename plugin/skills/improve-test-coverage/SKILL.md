@@ -1,6 +1,6 @@
 ---
 name: improve-test-coverage
-description: "Iteratively write .NET unit tests to improve code coverage toward 80% line and branch targets. USE FOR: autonomously running tests, finding gaps, writing targeted tests, and repeating until 80% coverage or plateau. Uses the dotnet-coverage-mcp MCP tools GetSourceFiles, RunTestsWithCoverage, GetCoverageSummary, GetCoverageDiff, GetUncoveredBranches, GetFileCoverage, AppendTestCode and CleanupSession. Uses smart batching by line budget — small files grouped, large files solo. DO NOT USE FOR: just running tests without writing new ones (use run-coverage), inspecting a single method (use analyze-coverage-gaps)."
+description: "Iteratively write .NET unit tests until every file in scope reaches 80% line and branch coverage. USE FOR: autonomously running tests, finding gaps, writing targeted tests, and repeating until every file is at 80% or plateaus. Uses the dotnet-coverage-mcp MCP tools GetSourceFiles, RunTestsWithCoverage, GetCoverageGaps, GetCoverageDiff, AppendTestCode and CleanupSession (plus GetFileCoverage, GetUncoveredBranches, GetCoverageSummary for drill-down). Uses smart batching by line budget — small files grouped, large files solo. DO NOT USE FOR: just running tests without writing new ones (use run-coverage), inspecting a single method (use analyze-coverage-gaps)."
 ---
 
 # Improve Test Coverage Iteratively
@@ -65,20 +65,17 @@ This runs `dotnet test` **once** and collects coverage across all source files.
 
 Leave `includeClass` unset. It would silently limit collection to a single class and zero out the rest of the batch.
 
-Then for **each file in the batch**, call `GetFileCoverage` with `coberturaXmlPath` and the file's `path` from the batch (absolute paths are fine). If it returns `ambiguous`, pass one of the listed `candidates`.
-- If `allMeetTarget: true` → mark file as done, skip it
-- If `allMeetTarget: false` → include in this cycle's work
+### Step 2: Get the gaps for the whole batch (ONE call)
+Call `GetCoverageGaps` with `coberturaXmlPath` and `path` = the batch's file paths, comma-separated (or the folder / `.csproj` for a small scope). The goal is **every file at 80% line and branch**, and the response is organised per file:
+- `filesDone` / `done` — files already at target; nothing to do
+- `remaining` — files below target, smallest gap first. Each has `linesToCover` / `branchesToCover` (how many more lines / branch outcomes must be covered) and `methods`: the fewest methods that close that file's gap, each with `uncoveredLines` (ranges), `uncoveredBranches`, and `source` (the code around each gap)
+- `closesGap: false` — the listed methods alone don't reach the target; there is more to do after them
+- `notInReport` — files with no coverage data at all: the test project probably doesn't reference their project. Tell the user; no test can cover them as things stand
 
-### Step 2: Identify lowest-coverage methods across the batch
-From all non-done files in the batch, pick the **3 lowest branch-coverage methods**, excluding:
-- Methods already at ≥ 80% branch coverage
-- Methods marked as blocked (failed 3 times with no improvement)
-- Static factory methods and auto-generated property accessors
+Skip methods you marked as blocked (failed 3 times with no improvement). `GetFileCoverage` and `GetUncoveredBranches` remain available to drill into one file or method.
 
-### Step 3: Find uncovered branches
-For each target method, call `GetUncoveredBranches` with `coberturaXmlPath` and the method name.
-
-Each entry is a source line with its uncovered conditions, e.g. `condition 23 (jump, 50% covered)`: the `if`/`?:`/`&&` on that line only ever went one way, so write a test for the other outcome. `0% covered` means neither outcome ran (usually the line itself never executed). Read that line in the source to see which input takes the missing path.
+### Step 3: Read the gaps
+Each uncovered branch is a source line with its uncovered conditions, e.g. `condition 23 (jump, 50% covered)`: the `if`/`?:`/`&&` on that line only ever went one way, so write a test for the other outcome. `0% covered` means neither outcome ran (usually the line itself never executed). Read that line in the source to see which input takes the missing path.
 
 ### Step 4: Write targeted tests for the batch
 For each uncovered branch, write a focused unit test using `AppendTestCode`:
@@ -108,21 +105,16 @@ If `RunTestsWithCoverage` returns a build error after writing tests:
 If `RunTestsWithCoverage` returns `errorType: "testsFailed"`, the build succeeded but a test assertion failed:
 1. Read `failures` — each entry has the test name, assertion message, and the top frames of the stack in your code
 2. Fix the test (usually a wrong expectation or mock setup) with Edit; do not delete it just to make the run pass
-3. The response still carries `coberturaXmlPath`: coverage from the passing tests is valid, so `GetFileCoverage` works before re-running
+3. The response still carries `coberturaXmlPath`: coverage from the passing tests is valid, so `GetCoverageGaps` works before re-running
 
 If it returns `errorType: "noTestsMatched"`, the `filter` selected nothing. Omit it to run every test, or use a shorter name.
 
 ### Step 5: Re-run and check batch-level progress
-Call `RunTestsWithCoverage` **once** with the same broad filter.
-Call `GetFileCoverage` for **each file in the batch** to check per-file progress.
-Call `GetCoverageDiff` to see method-level deltas.
-
-For each file in the batch:
-- **`allMeetTarget: true`** → mark as done, remove from batch
-- **`allMeetTarget: false`** → keep in batch for next cycle
+Call `RunTestsWithCoverage` **once** with the same broad filter (`skipReport: true` is fine inside the loop).
+Call `GetCoverageGaps` again for the batch, and `GetCoverageDiff` to see method-level deltas.
 
 ### Step 6: Repeat or advance
-- **If batch has remaining files below 80%** → return to Step 2 (same batch, fewer files)
+- **If `filesRemaining` > 0** → return to Step 3 with the new gaps
 - **If all files in batch are done OR 3 cycles with no improvement** → move to next batch
 - **If all batches complete** → report final coverage summary, including how many files were excluded and why (by kind)
 
@@ -138,7 +130,7 @@ For each file in the batch:
 ## Performance Notes
 
 - **One `dotnet test` per cycle** — not per file. This is the key optimization.
-- `GetFileCoverage` is instant (XML parse) — call it for every file in the batch freely
+- `GetCoverageGaps` answers for the whole batch in one call and needs no test run; the report is parsed once and cached
 - Small files (< 100 lines) get batched together so AI handles 3–5 at once
 - Large files (> lineBudget) get their own batch for focused attention
 - Omit `filter` (or use a namespace) for batch/folder/project scope
@@ -147,7 +139,7 @@ For each file in the batch:
 ## Validation
 - [ ] `GetSourceFiles` returned batches grouped by line budget
 - [ ] Only one `RunTestsWithCoverage` call per cycle (not per file)
-- [ ] `GetFileCoverage` checked for every file in the batch after each test run
+- [ ] `GetCoverageGaps` called for the batch after each test run
 - [ ] Each test targets a specific uncovered branch (not random line coverage)
 - [ ] No bulk POCO/property tests added
 - [ ] Files marked done and removed from batch when they hit 80%

@@ -39,6 +39,7 @@ MCP clients list these tools in snake_case (`run_tests_with_coverage`, `get_file
 | `RunTestsWithCoverage` | Run `dotnet test` with XPlat Code Coverage, generate a JSON summary via `reportgenerator`. Returns pass/fail/skip counts and paths to `Summary.json` and `coverage.cobertura.xml`. Distinguishes `testsFailed` (with each failure's message and stack, coverage kept), `noTestsMatched`, and `buildError` (compiler errors only). Supports `forceRestore` and `sessionId` for concurrent isolation. |
 | `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data sorted worst-first by branch coverage. Optional `belowTarget`/`topN`/`methodsPerClass` filters trim the response to what still needs work. |
 | `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes meet the configured `targetRate` for both line and branch coverage; default 0.8). Supports `sessionId`. |
+| `GetCoverageGaps` | For a scope (file, folder, `.csproj` or list), report per file whether it meets `targetRate` on lines and branches, and for each file below it the fewest methods that close its gap, with uncovered line ranges, uncovered branches and the source around them. One call per test cycle. Non-target files are skipped as in `GetSourceFiles`. |
 | `GetUncoveredBranches` | Find uncovered branch conditions for methods matching a given name. Returns all matching methods with partial name support. Supports `sessionId`. |
 | `GetCoverageDiff` | Compare current Cobertura XML against baseline. Shows method-level changes including new and removed methods. Supports `sessionId` for concurrent isolation. |
 | `AppendTestCode` | Insert or append C# test code into a test file. Rejects code that is not valid C# member syntax with `syntaxError`, leaving the file unchanged. Supports anchor-based insertion with whitespace-tolerant fallback matching. Uses atomic writes to prevent file corruption. |
@@ -50,12 +51,11 @@ For projects with many source files, the recommended workflow is:
 
 1. **Discover** — Call `GetSourceFiles` on a folder or `.csproj` to get all files and smart batches
 2. **Run once** — Call `RunTestsWithCoverage` without a filter (runs every test) to collect coverage across all files
-3. **Check per-file** — Call `GetFileCoverage` for each file in the current batch (instant XML parsing, no test re-run)
-4. **Focus** — Pick the 3 lowest branch-coverage methods and call `GetUncoveredBranches` for each
-5. **Write tests** — Use `AppendTestCode` to add test methods
-6. **Re-run and diff** — Run tests once, call `GetCoverageDiff` to verify improvement
-7. **Repeat** — Continue until batch files meet the target rate (default 80%) or 3 cycles with no improvement, then move to next batch
-8. **Clean up** — Once the goal is reached, call `CleanupSession` to remove `TestResults-{hash}/`, `coveragereport-{hash}/`, and session state files. These are **not** deleted automatically — they persist until `CleanupSession` is called (or until a time-based cleanup via `maxAgeMinutes`).
+3. **Find the gaps** — Call `GetCoverageGaps` for the batch: per file below target, the methods to test, with the uncovered branches and source around them (no test re-run)
+4. **Write tests** — Use `AppendTestCode` to add test methods
+5. **Re-run and diff** — Run tests once, call `GetCoverageDiff` to verify improvement
+6. **Repeat** — Continue until batch files meet the target rate (default 80%) or 3 cycles with no improvement, then move to next batch
+7. **Clean up** — Once the goal is reached, call `CleanupSession` to remove `TestResults-{hash}/`, `coveragereport-{hash}/`, and session state files. These are **not** deleted automatically — they persist until `CleanupSession` is called (or until a time-based cleanup via `maxAgeMinutes`).
 
 This minimises `dotnet test` invocations (the main bottleneck) while still tracking per-file progress.
 
@@ -243,6 +243,19 @@ Or point directly at the compiled executable:
 | `sourceFileName` | string | Yes | File to look up: an absolute path (as `GetSourceFiles` returns), a repo-relative path (`Services/ExampleService.cs`) or a bare name (`ExampleService.cs`). Matched on whole path segments; a bare name found in several folders returns `ambiguous` with the candidates. The response's `sourceFile` is the path that matched. |
 | `sessionId` | string | No | Resolves session-scoped state file for concurrent isolation. |
 | `targetRate` | double | No | Coverage threshold (0.0–1.0) used to compute `allMeetTarget`. Default `0.8`. |
+
+### `GetCoverageGaps`
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `coberturaXmlPath` | string | Yes | Path to `coverage.cobertura.xml` (falls back to `.mcp-coverage/.coverage-state` if not found) |
+| `path` | string | Yes | Scope: a `.cs` file, folder, `.csproj`, or comma-separated list of `.cs` files (e.g. a batch) |
+| `targetRate` | double | No | Per-file target (0.0–1.0) for both line and branch coverage. Default `0.8`. |
+| `maxFiles` | int | No | Below-target files returned in detail, smallest gap first; the rest are listed with rates only. Default `5`. |
+| `maxMethodsPerFile` | int | No | Maximum methods returned per file. Default `5`. |
+| `includeSource` | bool | No | Include the source lines around each gap (2 lines of context, at most 30 per method). Default `true`. |
+| `sessionId` | string | No | Resolves the session-scoped state file for concurrent isolation. |
+
+Methods are ranked by how many uncovered lines and branch outcomes they hold, counting only the metric that is still below target, and picked until the file's gap is closed (`closesGap`). Files in the scope with no coverage data are listed under `notInReport`.
 
 ### `GetUncoveredBranches`
 | Parameter | Type | Required | Description |
