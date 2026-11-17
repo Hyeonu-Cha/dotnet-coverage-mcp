@@ -3,9 +3,9 @@ name: release
 # Triggered when you push a tag like `v0.1.0`. Builds, tests, packs, and
 # publishes the NuGet package, then attaches the .nupkg to a GitHub Release.
 #
-# Prerequisites (one-time setup):
-#   1. Create a NuGet API key at https://www.nuget.org/account/apikeys
-#   2. Add it as repo secret `NUGET_API_KEY` (Settings → Secrets → Actions)
+# Publishing uses NuGet Trusted Publishing: no stored API key. A policy on
+# nuget.org (owner Hyeonu-Cha, repo dotnet-coverage-mcp, workflow release.yml)
+# lets this workflow trade its GitHub OIDC token for a key valid about an hour.
 #
 # After that, a release is just:
 #   git tag v0.1.0 && git push origin v0.1.0
@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write # OIDC token for NuGet Trusted Publishing
 
 jobs:
   release:
@@ -64,8 +65,15 @@ jobs:
         # collide with the test project's ProjectReference.
         run: dotnet pack DotNetCoverageMcp.csproj --configuration Release -p:Version=${{ steps.version.outputs.version }} -p:IsPacking=true -o ./nupkg
 
+      # Right before the push: the key it returns expires after about an hour.
+      - name: NuGet login (Trusted Publishing)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ericcha901 # nuget.org account that owns the package
+
       - name: Publish to NuGet
-        run: dotnet nuget push "./nupkg/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: dotnet nuget push "./nupkg/*.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Create GitHub Release
         env:
