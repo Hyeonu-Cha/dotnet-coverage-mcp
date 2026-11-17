@@ -95,10 +95,63 @@ public class PathGuardTests : IDisposable
     }
 
     [Fact]
+    public void Validate_SymlinkEscapingRoot_Throws()
+    {
+        // A link INSIDE the root that points OUTSIDE it must not pass the guard: the lexical
+        // path (root/link/secret.cs) looks contained, but it reads an arbitrary file.
+        var outside = Path.Combine(Path.GetTempPath(), $"pg-out-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "secret.cs"), "class S { }");
+        var link = Path.Combine(_tempRoot, "link");
+        try
+        {
+            if (!TryCreateDirectorySymlink(link, outside)) return; // no symlink privilege (e.g. Windows CI)
+            var guard = CreateGuardWithRoot(_tempRoot);
+
+            var act = () => guard.Validate(Path.Combine(link, "secret.cs"), "p");
+
+            act.Should().Throw<UnauthorizedAccessException>();
+        }
+        finally
+        {
+            try { Directory.Delete(link); } catch { /* remove the link, not its target */ }
+            try { Directory.Delete(outside, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Validate_SymlinkWithinRoot_Allowed()
+    {
+        // A link inside the root that points to another location inside the root is fine.
+        var realDir = Path.Combine(_tempRoot, "real");
+        Directory.CreateDirectory(realDir);
+        File.WriteAllText(Path.Combine(realDir, "f.cs"), "class F { }");
+        var link = Path.Combine(_tempRoot, "linkin");
+        if (!TryCreateDirectorySymlink(link, realDir)) return;
+
+        var guard = CreateGuardWithRoot(_tempRoot);
+
+        var act = () => guard.Validate(Path.Combine(link, "f.cs"), "p");
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
     public void IsWithinAllowedRoot_EmptyPath_ReturnsFalse()
     {
         var guard = CreateGuardWithRoot(_tempRoot);
         guard.IsWithinAllowedRoot("").Should().BeFalse();
+    }
+
+    // Creates a directory symlink, or returns false when the platform refuses (Windows without
+    // Developer Mode / admin). Lets the symlink tests run on Linux/macOS CI and skip elsewhere.
+    private static bool TryCreateDirectorySymlink(string link, string target)
+    {
+        try { Directory.CreateSymbolicLink(link, target); return true; }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            return false;
+        }
     }
 
     [Fact]

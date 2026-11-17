@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   untouched.
 - Restored the `## [2.0.0]` heading in this changelog, dropped by mistake while
   adding the entry above it.
+- Path validation could be escaped with a symlink or junction. `COVERAGE_MCP_ALLOWED_ROOT`
+  was enforced with a purely lexical check, so a link **inside** the root that pointed
+  **outside** it (`root/link/secret.cs`) passed, letting a read-only tool return an arbitrary
+  file's contents, and a folder scan followed such links out of the tree. Paths (and the root
+  itself) are now resolved through symlinks/junctions before the containment check, and the
+  `GetSourceFiles` / `GetCoverageGaps` folder and project scans no longer descend into or return
+  reparse points.
 - `RunTestsWithCoverage` passed `testProjectPath` to `dotnet test` verbatim as its
   first argument, so a value like `--help` or `-bl:evil.binlog` was parsed as a
   CLI/MSBuild option (`--help` printed usage; an MSBuild logger switch wrote a file

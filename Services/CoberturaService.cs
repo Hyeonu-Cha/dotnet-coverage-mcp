@@ -170,31 +170,10 @@ public class CoberturaService : ICoberturaService
     /// <summary>
     /// The path with every symlinked folder on it resolved. Coverlet records the path the
     /// compiler saw, which is the resolved one: on macOS the temp folder /var/... is really
-    /// /private/var/..., and a repo can sit under a symlink anywhere. Returns the input when
-    /// nothing on the path is a link or it can't be resolved.
+    /// /private/var/..., and a repo can sit under a symlink anywhere. Shares the resolver with
+    /// <see cref="PathGuard"/> so the two never disagree on where a path really points.
     /// </summary>
-    internal static string ResolveSymlinks(string path)
-    {
-        try
-        {
-            var full = Path.GetFullPath(path);
-            var root = Path.GetPathRoot(full) ?? "";
-            var current = root;
-            foreach (var part in full[root.Length..].Split(
-                         [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
-            {
-                current = Path.Combine(current, part);
-                FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
-                if (info.LinkTarget != null && info.ResolveLinkTarget(returnFinalTarget: true) is { } target)
-                    current = target.FullName;
-            }
-            return current;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            return path;
-        }
-    }
+    internal static string ResolveSymlinks(string path) => SymlinkResolver.Resolve(path);
 
     // Report classes for a requested path; for an absolute path that matches nothing as
     // given, retries with symlinks resolved (see ResolveSymlinks).
