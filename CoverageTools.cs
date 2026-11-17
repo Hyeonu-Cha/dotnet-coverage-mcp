@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Text.RegularExpressions;
 using ModelContextProtocol.Server;
 using DotNetCoverageMcp.Helpers;
 using DotNetCoverageMcp.Services;
@@ -91,18 +92,49 @@ public class CoverageTools
             case TestRunOutcome.Timeout:
                 return JsonHelper.Error("timeout", $"Test run timed out. Output (tail): {Tail(testResult.Output)}");
             case TestRunOutcome.BuildError:
-                return JsonHelper.Error("buildError", $"Test run failed (code {testResult.ExitCode}). Error: {testResult.Error}\nOutput (tail): {Tail(testResult.Output)}");
+                return JsonHelper.Error("buildError",
+                    $"Build failed (exit code {testResult.ExitCode}).\n{BuildErrorDetail(testResult.Output, testResult.Error)}");
+            case TestRunOutcome.NoTestsMatched:
+                return JsonHelper.Error("noTestsMatched", ProcessRunner.RunsAllTests(filter)
+                    ? "The test project contains no tests."
+                    : $"No tests matched filter '{filter}'. A plain name matches any test whose fully qualified name contains it; omit filter to run every test.");
+        }
+
+        // The filter keys a state file; "run all" gets one stable key however it was spelled.
+        var stateKey = ProcessRunner.RunsAllTests(filter) ? "*" : filter!;
+
+        if (testResult.Outcome == TestRunOutcome.TestsFailed)
+        {
+            // Coverage of the tests that did run is still valid, so keep it reachable for the
+            // per-file tools. The report step is skipped: the agent's next move is fixing tests.
+            if (testResult.CoverageXmlPath != null)
+                _sessionManager.SaveCoverageState(workingDir, testResult.CoverageXmlPath, stateKey, sessionId);
+            var s = testResult.Summary;
+            return JsonHelper.Serialize(new
+            {
+                error = s == null
+                    ? $"Test run failed (exit code {testResult.ExitCode})."
+                    : $"{s.Failed} of {s.Total} tests failed.",
+                errorType = "testsFailed",
+                passed = s?.Passed,
+                failed = s?.Failed,
+                skipped = s?.Skipped,
+                failures = s?.Failures,
+                coberturaXmlPath = testResult.CoverageXmlPath
+            });
         }
 
         if (testResult.CoverageXmlPath == null)
             return JsonHelper.Error("noCoverage", "No coverage XML found.\n" + Tail(testResult.Output));
 
-        // The filter keys a state file; "run all" gets one stable key however it was spelled.
-        var stateKey = ProcessRunner.RunsAllTests(filter) ? "*" : filter!;
         _sessionManager.SaveCoverageState(workingDir, testResult.CoverageXmlPath, stateKey, sessionId);
 
+        var counts = testResult.Summary is { } sum
+            ? $" Passed: {sum.Passed}, Failed: {sum.Failed}, Skipped: {sum.Skipped}."
+            : "";
+
         if (skipReport)
-            return $"Tests completed (report skipped).\nCobertura XML at: {testResult.CoverageXmlPath}";
+            return $"Tests completed (report skipped).{counts}\nCobertura XML at: {testResult.CoverageXmlPath}";
 
         ReportResult reportResult;
         try
@@ -123,7 +155,7 @@ public class CoverageTools
                 : JsonHelper.Error("reportFailed", $"{reportResult.ErrorDetail}\n{Tail(testResult.Output)}");
         }
 
-        return $"Tests completed.\nCoverage JSON at: {reportResult.SummaryPath}\nCobertura XML at: {testResult.CoverageXmlPath}";
+        return $"Tests completed.{counts}\nCoverage JSON at: {reportResult.SummaryPath}\nCobertura XML at: {testResult.CoverageXmlPath}";
     }
 
     // --- 2. GetCoverageSummary ---
@@ -498,6 +530,29 @@ public class CoverageTools
     }
 
     // --- Private helpers ---
+
+    private const int MaxBuildErrors = 20;
+
+    // MSBuild prints each compiler error twice (inline and in the summary), each with the
+    // project path appended. Return each error once, without the suffix; fall back to the
+    // output tail when the failure has no `error` lines (e.g. the SDK itself failed).
+    internal static string BuildErrorDetail(string output, string error)
+    {
+        var errors = $"{output}\n{error}".Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Contains(": error ", StringComparison.Ordinal))
+            .Select(l => ProjectSuffix.Replace(l, ""))
+            .Distinct()
+            .ToList();
+
+        if (errors.Count == 0)
+            return $"Error: {error}\nOutput (tail): {Tail(output)}";
+
+        var shown = string.Join("\n", errors.Take(MaxBuildErrors));
+        return errors.Count > MaxBuildErrors ? $"{shown}\n...({errors.Count - MaxBuildErrors} more errors)" : shown;
+    }
+
+    private static readonly Regex ProjectSuffix = new(@"\s*\[[^\[\]]+\.(?:cs|vb|fs)proj(?:::[^\]]*)?\]$", RegexOptions.Compiled);
 
     // dotnet test stdout is large and mostly noise once a run succeeds. Callers get the
     // artifact paths on success; on failure we return only the tail, which is where the

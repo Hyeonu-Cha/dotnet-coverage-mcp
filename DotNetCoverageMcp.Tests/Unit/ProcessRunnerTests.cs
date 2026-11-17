@@ -94,6 +94,34 @@ public class ProcessRunnerTests
     }
 
     [Fact]
+    public void BuildTestArguments_AlwaysWritesTrx()
+    {
+        var args = ProcessRunner.BuildTestArguments("p.csproj", null, "/r", false, null);
+
+        args[args.IndexOf("--logger") + 1].Should().Be("trx");
+    }
+
+    private static TestSummary Summary(int total, int passed, int failed) =>
+        new(total, passed, failed, total - passed - failed, []);
+
+    public static TheoryData<int, TestSummary?, TestRunOutcome> ClassifyCases => new()
+    {
+        { 0, null, TestRunOutcome.Success },                       // no TRX, clean exit
+        { 1, null, TestRunOutcome.BuildError },                    // never reached tests
+        { 0, Summary(0, 0, 0), TestRunOutcome.NoTestsMatched },    // dotnet test exits 0 here
+        { 1, Summary(3, 2, 1), TestRunOutcome.TestsFailed },
+        { 0, Summary(3, 3, 0), TestRunOutcome.Success },
+        { 1, Summary(3, 3, 0), TestRunOutcome.TestsFailed },       // aborted run, e.g. hang timeout
+    };
+
+    [Theory]
+    [MemberData(nameof(ClassifyCases))]
+    public void Classify_MapsExitCodeAndTrx(int exitCode, TestSummary? summary, TestRunOutcome expected)
+    {
+        ProcessRunner.Classify(exitCode, summary).Should().Be(expected);
+    }
+
+    [Fact]
     public void BuildTestArguments_ForceRestore_OmitsNoRestore()
     {
         ProcessRunner.BuildTestArguments("p.csproj", null, "/r", forceRestore: true, null)
