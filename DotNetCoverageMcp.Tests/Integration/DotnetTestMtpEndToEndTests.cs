@@ -59,6 +59,34 @@ public class DotnetTestMtpEndToEndTests : IClassFixture<SampleProjectMtpFixture>
     }
 
     [Fact]
+    public async Task ReportsProgressAndCountsFromMtpOutput()
+    {
+        // Calls the runner directly so a failure can show the raw console output, whose
+        // shape differs between SDK versions.
+        var messages = new List<string>();
+        var resultsDir = Path.Combine(_fixture.Root, $"TestResults-progress-{Guid.NewGuid():N}");
+        var result = await new ProcessRunner(NullLogger<ProcessRunner>.Instance).RunDotnetTestAsync(
+            _fixture.TestProjectPath, null, resultsDir, Path.GetDirectoryName(_fixture.TestProjectPath)!,
+            forceRestore: false, includeClass: null, progress: new SyncStringProgress(m => { lock (messages) messages.Add(m); }),
+            CancellationToken.None);
+
+        var raw = $"messages: {string.Join(" | ", messages)}\n--- stdout ---\n{Visible(result.Output)}\n--- stderr ---\n{Visible(result.Error)}";
+        result.Outcome.Should().Be(TestRunOutcome.Success, because: raw);
+        messages.Should().Contain("Running tests in SampleLib.Tests.dll", because: raw);
+        messages.Should().Contain(m => m.StartsWith("Test run summary:", StringComparison.Ordinal)
+                                       || m.StartsWith("Passed!", StringComparison.Ordinal), because: raw);
+        // The counts fallback used when a project has no TrxReport extension reads the same output.
+        ProcessRunner.ParseMtpSummary(result.Output).Should().NotBeNull(because: raw);
+    }
+
+    // Control characters (e.g. ANSI escapes) made visible, tail only.
+    private static string Visible(string s)
+    {
+        var tail = s.Length > 3000 ? s[^3000..] : s;
+        return string.Concat(tail.Select(c => c is '\n' or '\r' or '\t' || !char.IsControl(c) ? c.ToString() : $"\\u{(int)c:x4}"));
+    }
+
+    [Fact]
     public async Task ClassDotMethodFilter_RunsOnlyThatTest()
     {
         var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, "CalculatorTests.Add_ReturnsSum", skipReport: true);

@@ -46,6 +46,12 @@ MCP clients list these tools in snake_case (`run_tests_with_coverage`, `get_file
 | `AppendTestCode` | Insert or append C# test code into a test file. Rejects code that is not valid C# member syntax with `syntaxError`, leaving the file unchanged. Supports anchor-based insertion with whitespace-tolerant fallback matching. Uses atomic writes to prevent file corruption. |
 | `CleanupSession` | Remove session state files and `TestResults/coveragereport` directories. Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes` (default 120). |
 
+### Protocol details
+
+- **Tool annotations.** The six query tools are marked `readOnlyHint` + `idempotentHint`, so clients that auto-approve read-only tools won't prompt for them. `run_tests_with_coverage`, `append_test_code` and `get_coverage_diff` write files but are not destructive. Only `cleanup_session` is `destructiveHint: true`. Only `run_tests_with_coverage` is `openWorldHint: true`, since a restore can reach NuGet.
+- **Server instructions.** The `initialize` result carries a short workflow (environment → run → gaps → append → repeat) that clients put in the model's context.
+- **Progress.** When the client sends a progress token, `run_tests_with_coverage` reports milestones while `dotnet test` runs: restore, each project built, tests started, the result line.
+
 ## Batch Workflow
 
 For projects with many source files, the recommended workflow is:

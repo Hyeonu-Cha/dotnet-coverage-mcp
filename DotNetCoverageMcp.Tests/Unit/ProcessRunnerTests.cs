@@ -179,6 +179,21 @@ public class ProcessRunnerTests
     }
 
     [Fact]
+    public void StripAnsi_RemovesTheColourCodesMtpWritesOnCi()
+    {
+        // Verbatim from an MTP run on a GitHub Actions runner (SDK 10.0.404). Before
+        // stripping, neither the summary line nor "total:" was recognised.
+        const string colored = "\u001b[32mTest run summary: Passed!\n\u001b[m  total: 3\n  failed: 0\n\u001b[32m  succeeded: 3\n\u001b[m  skipped: 0\n";
+
+        var clean = ProcessRunner.StripAnsi(colored);
+
+        clean.Should().NotContain("\u001b");
+        ProcessRunner.ProgressMessage(clean.Split('\n')[0]).Should().Be("Test run summary: Passed!");
+        ProcessRunner.ParseMtpSummary(clean).Should().BeEquivalentTo(new TestSummary(3, 3, 0, 0, []));
+        ProcessRunner.StripAnsi("plain text").Should().Be("plain text");
+    }
+
+    [Fact]
     public void FindCoverageXml_PrefersTheShallowestReport()
     {
         // Microsoft's extension writes <guid>.cobertura.xml at the top and a copy under In/;
@@ -196,6 +211,26 @@ public class ProcessRunnerTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    // Lines verbatim from real VSTest and MTP runs of the fixture.
+    [Theory]
+    [InlineData("  Determining projects to restore...", "Restoring packages")]
+    [InlineData(@"  SampleLib -> C:\fx\SampleLib\bin\Debug\net10.0\SampleLib.dll", "Built SampleLib")]
+    [InlineData(@"Test run for C:\fx\SampleLib.Tests\bin\Debug\net10.0\SampleLib.Tests.dll (.NETCoreApp,Version=v10.0)", "Running tests in SampleLib.Tests.dll")]
+    [InlineData(@"Running tests from C:\mtp\XuMtp\bin\Debug\net10.0\XuMtp.dll (net10.0|x64)", "Running tests in XuMtp.dll")]
+    [InlineData("Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 21 ms - SampleLib.Tests.dll (net10.0)",
+        "Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 21 ms - SampleLib.Tests.dll (net10.0)")]
+    [InlineData("Test run summary: Passed!", "Test run summary: Passed!")]
+    public void ProgressMessage_RecognisesMilestones(string line, string expected) =>
+        ProcessRunner.ProgressMessage(line).Should().Be(expected);
+
+    [Theory]
+    [InlineData("A total of 1 test files matched the specified pattern.")]
+    [InlineData("  total: 1")]
+    [InlineData(@"    - C:\mtp\r\XuMtp_net10.0_x64.trx")]
+    [InlineData("")]
+    public void ProgressMessage_IgnoresOtherLines(string line) =>
+        ProcessRunner.ProgressMessage(line).Should().BeNull();
 
     [Fact]
     public void BuildTestArguments_ForceRestore_OmitsNoRestore()

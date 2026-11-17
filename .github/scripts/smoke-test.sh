@@ -4,6 +4,7 @@
 set -euo pipefail
 
 EXPECTED_TOOLS=10
+EXPECTED_READ_ONLY=6
 # A version that can never exist on nuget.org, so the install below cannot pick up
 # the published package instead of the one just built.
 VERSION=0.0.0-ci
@@ -28,13 +29,24 @@ request() {
 request | "$WORK/tool/dotnet-coverage-mcp" > "$WORK/out.json" 2> "$WORK/err.log" || true
 
 # The tools/list reply is the line with id 2; count the tool entries in it.
-count=$(grep '"id":2' "$WORK/out.json" | grep -o '"inputSchema"' | wc -l | tr -d ' ')
-
-if [ "$count" -ne "$EXPECTED_TOOLS" ]; then
-  echo "Smoke test failed: expected $EXPECTED_TOOLS tools, got $count" >&2
+fail() {
+  echo "Smoke test failed: $1" >&2
   echo "--- stdout" >&2; cat "$WORK/out.json" >&2
   echo "--- stderr" >&2; cat "$WORK/err.log" >&2
   exit 1
-fi
+}
 
-echo "Smoke test passed: $count tools listed."
+tools=$(grep '"id":2' "$WORK/out.json" || true)
+count=$(echo "$tools" | grep -o '"inputSchema"' | wc -l | tr -d ' ')
+[ "$count" -eq "$EXPECTED_TOOLS" ] || fail "expected $EXPECTED_TOOLS tools, got $count"
+
+# Clients decide what to auto-approve from these hints; a wrong one prompts on every call
+# or skips a prompt that should happen. Only cleanup_session deletes anything.
+destructive=$(echo "$tools" | grep -o '"destructiveHint":true' | wc -l | tr -d ' ')
+[ "$destructive" -eq 1 ] || fail "expected 1 destructive tool (cleanup_session), got $destructive"
+readonly=$(echo "$tools" | grep -o '"readOnlyHint":true' | wc -l | tr -d ' ')
+[ "$readonly" -eq "$EXPECTED_READ_ONLY" ] || fail "expected $EXPECTED_READ_ONLY read-only tools, got $readonly"
+
+grep '"id":1' "$WORK/out.json" | grep -q '"instructions":' || fail "initialize result has no server instructions"
+
+echo "Smoke test passed: $count tools listed, annotations and instructions present."
