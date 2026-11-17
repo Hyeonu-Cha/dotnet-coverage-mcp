@@ -185,22 +185,21 @@ public class CoverageTools
     // --- 2. GetCoverageSummary ---
 
     [McpServerTool(Title = "Coverage summary", ReadOnly = true, Idempotent = true, OpenWorld = false)]
-    [Description("Parse Summary.json into class/method coverage data, sorted worst-first by branch coverage. Optional belowTarget/topN/methodsPerClass filters trim the response to the classes and methods that still need work.")]
+    [Description("Summarise class/method coverage from Cobertura XML, sorted worst-first by branch coverage. Optional belowTarget/topN/methodsPerClass filters trim the response to the classes and methods that still need work.")]
     public string GetCoverageSummary(
-        [Description("Absolute path to the Summary.json produced by reportgenerator (returned by RunTestsWithCoverage).")]
-        string summaryJsonPath,
+        [Description("Absolute path to coverage.cobertura.xml (returned by RunTestsWithCoverage). Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when the file is not found at this path.")]
+        string coberturaXmlPath,
         [Description("Optional. When set (a fraction in [0,1], e.g. 0.8), return only classes whose line OR branch coverage is below this threshold — the ones that still need work. Omit to return every class.")]
         double? belowTarget = null,
         [Description("Optional. Return only the N classes with the lowest branch coverage (results are sorted worst-first). Omit to return every class.")]
         int? topN = null,
         [Description("Optional. Keep at most this many lowest-branch-coverage methods per class, trimming the rest. Omit to keep every method.")]
-        int? methodsPerClass = null)
+        int? methodsPerClass = null,
+        [Description("Optional session token used to resolve the session-scoped .coverage-state-{hash} fallback. Omit for single-agent use.")]
+        string? sessionId = null)
     {
-        try { _pathGuard.Validate(summaryJsonPath, nameof(summaryJsonPath)); }
+        try { _pathGuard.Validate(coberturaXmlPath, nameof(coberturaXmlPath)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
-
-        if (!File.Exists(summaryJsonPath))
-            return JsonHelper.Error("fileNotFound", $"Summary.json not found: {summaryJsonPath}");
 
         if (belowTarget is < 0.0 or > 1.0)
             return JsonHelper.Error("invalidParameter", "belowTarget must be between 0.0 and 1.0.");
@@ -209,10 +208,14 @@ public class CoverageTools
         if (methodsPerClass is < 0)
             return JsonHelper.Error("invalidParameter", "methodsPerClass must be non-negative.");
 
+        var resolvedPath = _sessionManager.ResolveCoberturaPath(coberturaXmlPath, sessionId);
+        if (resolvedPath == null)
+            return JsonHelper.Error("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
+
         try
         {
             // Sort worst-first so topN yields the classes most in need of tests.
-            IEnumerable<SummaryClass> classes = _coberturaService.ParseSummary(summaryJsonPath)
+            IEnumerable<SummaryClass> classes = _coberturaService.SummarizeClasses(resolvedPath)
                 .OrderBy(c => c.BranchCoverage).ThenBy(c => c.LineCoverage);
 
             if (belowTarget is double target)
@@ -226,13 +229,9 @@ public class CoverageTools
 
             return JsonHelper.Serialize(list);
         }
-        catch (InvalidOperationException ex)
-        {
-            return JsonHelper.Error("parseFailed", ex.Message);
-        }
         catch (Exception ex)
         {
-            return JsonHelper.Error("parseFailed", $"Failed to parse Summary.json: {ex.Message}");
+            return JsonHelper.Error("parseFailed", $"Failed to parse Cobertura XML: {ex.Message}");
         }
     }
 

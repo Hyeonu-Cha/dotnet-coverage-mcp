@@ -268,98 +268,69 @@ public class CoverageToolsTests
     [Fact]
     public void GetCoverageSummary_FileNotFound_ReturnsError()
     {
-        var result = _sut.GetCoverageSummary("/nonexistent/Summary.json");
+        // ResolveCoberturaPath returns null (mock default) when nothing resolves.
+        var result = _sut.GetCoverageSummary("/nonexistent/coverage.cobertura.xml");
         AssertError(result, "fileNotFound");
     }
 
     [Fact]
     public void GetCoverageSummary_BelowTarget_FiltersAndSortsWorstFirst()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, "{}"); // must exist; content is unused since ParseSummary is mocked
-        try
+        const string path = "/coverage.cobertura.xml";
+        _sessionManager.Setup(s => s.ResolveCoberturaPath(path, null)).Returns(path);
+        _coberturaService.Setup(c => c.SummarizeClasses(path)).Returns(new List<SummaryClass>
         {
-            _coberturaService.Setup(c => c.ParseSummary(path)).Returns(new List<SummaryClass>
-            {
-                new("HighCov", 0.95, 0.90, new List<SummaryMethod>()),
-                new("LowCov", 0.40, 0.30, new List<SummaryMethod>()),
-                new("MidCov", 0.85, 0.75, new List<SummaryMethod>()),
-            });
+            new("HighCov", 0.95, 0.90, new List<SummaryMethod>()),
+            new("LowCov", 0.40, 0.30, new List<SummaryMethod>()),
+            new("MidCov", 0.85, 0.75, new List<SummaryMethod>()),
+        });
 
-            var result = _sut.GetCoverageSummary(path, belowTarget: 0.8);
+        var result = _sut.GetCoverageSummary(path, belowTarget: 0.8);
 
-            using var doc = JsonDocument.Parse(result);
-            var classes = doc.RootElement.EnumerateArray()
-                .Select(e => e.GetProperty("class").GetString()).ToList();
-            // HighCov (0.95/0.90) is excluded; the rest are returned worst-branch-first.
-            classes.Should().Equal("LowCov", "MidCov");
-        }
-        finally { File.Delete(path); }
+        using var doc = JsonDocument.Parse(result);
+        var classes = doc.RootElement.EnumerateArray()
+            .Select(e => e.GetProperty("class").GetString()).ToList();
+        // HighCov (0.95/0.90) is excluded; the rest are returned worst-branch-first.
+        classes.Should().Equal("LowCov", "MidCov");
     }
 
     [Fact]
     public void GetCoverageSummary_TopNAndMethodsPerClass_Trim()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, "{}");
-        try
+        const string path = "/coverage.cobertura.xml";
+        _sessionManager.Setup(s => s.ResolveCoberturaPath(path, null)).Returns(path);
+        _coberturaService.Setup(c => c.SummarizeClasses(path)).Returns(new List<SummaryClass>
         {
-            _coberturaService.Setup(c => c.ParseSummary(path)).Returns(new List<SummaryClass>
-            {
-                new("A", 0.5, 0.5, new List<SummaryMethod> { new("m1", 0.1, 0.1), new("m2", 0.2, 0.2), new("m3", 0.3, 0.3) }),
-                new("B", 0.9, 0.9, new List<SummaryMethod>()),
-                new("C", 0.4, 0.4, new List<SummaryMethod>()),
-            });
+            new("A", 0.5, 0.5, new List<SummaryMethod> { new("m1", 0.1, 0.1), new("m2", 0.2, 0.2), new("m3", 0.3, 0.3) }),
+            new("B", 0.9, 0.9, new List<SummaryMethod>()),
+            new("C", 0.4, 0.4, new List<SummaryMethod>()),
+        });
 
-            var result = _sut.GetCoverageSummary(path, topN: 2, methodsPerClass: 1);
+        var result = _sut.GetCoverageSummary(path, topN: 2, methodsPerClass: 1);
 
-            using var doc = JsonDocument.Parse(result);
-            var classes = doc.RootElement.EnumerateArray().ToList();
-            classes.Should().HaveCount(2);                                  // topN
-            classes[0].GetProperty("class").GetString().Should().Be("C");   // worst branch first
-            classes[1].GetProperty("class").GetString().Should().Be("A");
-            classes[1].GetProperty("methods").GetArrayLength().Should().Be(1); // methodsPerClass
-        }
-        finally { File.Delete(path); }
+        using var doc = JsonDocument.Parse(result);
+        var classes = doc.RootElement.EnumerateArray().ToList();
+        classes.Should().HaveCount(2);                                  // topN
+        classes[0].GetProperty("class").GetString().Should().Be("C");   // worst branch first
+        classes[1].GetProperty("class").GetString().Should().Be("A");
+        classes[1].GetProperty("methods").GetArrayLength().Should().Be(1); // methodsPerClass
     }
 
+    // Parameter validation happens before the path is resolved, so these need no file or mock.
     [Fact]
-    public void GetCoverageSummary_InvalidBelowTarget_ReturnsError()
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, "{}");
-        try
-        {
-            var result = _sut.GetCoverageSummary(path, belowTarget: 80);
-            AssertError(result, "invalidParameter");
-        }
-        finally { File.Delete(path); }
-    }
+    public void GetCoverageSummary_InvalidBelowTarget_ReturnsError() =>
+        AssertError(_sut.GetCoverageSummary("/c.cobertura.xml", belowTarget: 80), "invalidParameter");
 
     [Fact]
     public void GetCoverageSummary_InvalidTopN_ReturnsError()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, "{}");
-        try
-        {
-            AssertError(_sut.GetCoverageSummary(path, topN: 0), "invalidParameter");
-            AssertError(_sut.GetCoverageSummary(path, topN: -1), "invalidParameter");
-        }
-        finally { File.Delete(path); }
+        AssertError(_sut.GetCoverageSummary("/c.cobertura.xml", topN: 0), "invalidParameter");
+        AssertError(_sut.GetCoverageSummary("/c.cobertura.xml", topN: -1), "invalidParameter");
     }
 
     [Fact]
-    public void GetCoverageSummary_InvalidMethodsPerClass_ReturnsError()
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"summary-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, "{}");
-        try
-        {
-            AssertError(_sut.GetCoverageSummary(path, methodsPerClass: -1), "invalidParameter");
-        }
-        finally { File.Delete(path); }
-    }
+    public void GetCoverageSummary_InvalidMethodsPerClass_ReturnsError() =>
+        AssertError(_sut.GetCoverageSummary("/c.cobertura.xml", methodsPerClass: -1), "invalidParameter");
 
     // --- GetUncoveredBranches ---
 

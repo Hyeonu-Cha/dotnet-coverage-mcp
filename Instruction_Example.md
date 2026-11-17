@@ -60,7 +60,7 @@ This is instant (XML parsing only, no test re-run). Check `allMeetTarget` — wh
 
 ### 3. Read Full Summary (first run only)
 
-Call `GetCoverageSummary` with the `Summary.json` path. Returns compact JSON — an array of classes with `lineCoverage`, `branchCoverage`, and `methods` sorted by branch coverage ascending. Use this to populate the **Before** columns of the progress table.
+Call `GetCoverageSummary` with the `coverage.cobertura.xml` path. Returns compact JSON — an array of classes with `lineCoverage`, `branchCoverage`, and `methods` sorted by branch coverage ascending. Use this to populate the **Before** columns of the progress table.
 
 On subsequent runs, use `GetCoverageDiff` instead — it returns only what changed plus `cycleImprovement` deltas.
 

@@ -37,7 +37,7 @@ MCP clients list these tools in snake_case (`run_tests_with_coverage`, `get_file
 |------|-------------|
 | `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` project. For a folder or project, files that are not test targets (entry points, DI registration, generated code, data-only models, test projects) are left out and listed under `excluded` with the reason; a `.csproj` scope also stops at nested projects. Returns file metadata (lines, method count) and smart batches grouped by `lineBudget`. |
 | `RunTestsWithCoverage` | Run `dotnet test` with code coverage (coverlet on VSTest; Microsoft's CodeCoverage extension when `global.json` selects Microsoft.Testing.Platform), generate a JSON summary via `reportgenerator`. Returns pass/fail/skip counts and paths to `Summary.json` and `coverage.cobertura.xml`. Distinguishes `testsFailed` (with each failure's message and stack, coverage kept), `noTestsMatched`, and `buildError` (compiler errors only). Supports `forceRestore` and `sessionId` for concurrent isolation. |
-| `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data sorted worst-first by branch coverage. Optional `belowTarget`/`topN`/`methodsPerClass` filters trim the response to what still needs work. |
+| `GetCoverageSummary` | Summarise class/method coverage from the Cobertura XML, sorted worst-first by branch coverage. Optional `belowTarget`/`topN`/`methodsPerClass` filters trim the response to what still needs work. |
 | `GetFileCoverage` | Get coverage for a single source file from Cobertura XML. Returns `allMeetTarget` (true when all classes meet the configured `targetRate` for both line and branch coverage; default 0.8). Supports `sessionId`. |
 | `DescribeTestTarget` | For a source file, per class: constructor dependencies with how to provide each in a test (mock, `NullLogger`, `Options.Create`, real instance for sealed/concrete classes, SQLite for a `DbContext`), public/internal methods with signatures and decision points, calls a test can't control (`DateTime.Now`, `File.*`, `Guid.NewGuid()`...) with the usual seam, a suggested test type with reasons, and existing test files. Syntax-only. |
 | `GetTestEnvironment` | Detect a test project's stack: framework (xUnit v2/v3, NUnit, MSTest) with the attributes to use, runner (VSTest or Microsoft.Testing.Platform), coverage collector, mocking and assertion libraries, integration-test packages, plus warnings such as a missing coverage collector. Reads `obj/project.assets.json` when restored. |
@@ -235,15 +235,16 @@ Or point directly at the compiled executable:
 | `forceRestore` | bool | No | When `true`, skips the `--no-restore` flag. Use after scaffolding a new test project or adding NuGet packages. |
 | `sessionId` | string | No | Isolates output directories (`TestResults-{hash}/`, `coveragereport-{hash}/`) and state files for concurrent multi-agent use. |
 | `includeClass` | string | No | Restrict coverage collection to types matching this name (coverlet `Include` filter, applied via a generated runsettings file passed with `--settings`). Independent of `filter` — pass an explicit value to scope coverage; omit it to collect coverage for everything the run touches. Namespace-qualified names are not supported. |
-| `skipReport` | bool | No | When `true`, skips the `reportgenerator` JSON-summary step and returns only the Cobertura XML path. Faster for the inner test loop, where `GetFileCoverage`/`GetUncoveredBranches`/`GetCoverageDiff` read the XML directly. Leave `false` (default) when you need `GetCoverageSummary`'s `Summary.json`. |
+| `skipReport` | bool | No | When `true`, skips the `reportgenerator` JSON-summary step and returns only the Cobertura XML path. Faster for the inner test loop, where `GetCoverageSummary`/`GetFileCoverage`/`GetUncoveredBranches`/`GetCoverageDiff` all read the Cobertura XML directly. Leave `false` (default) only if you want the `reportgenerator` `Summary.json` for other tooling. |
 
 ### `GetCoverageSummary`
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `summaryJsonPath` | string | Yes | Full path to the generated `Summary.json` file |
+| `coberturaXmlPath` | string | Yes | Path to `coverage.cobertura.xml` (returned by `RunTestsWithCoverage`). Falls back to `.mcp-coverage/.coverage-state` if not found. |
 | `belowTarget` | double | No | When set (a fraction in `[0,1]`, e.g. `0.8`), return only classes whose line OR branch coverage is below this threshold. Omit for all classes. |
 | `topN` | int | No | Return only the N lowest-branch-coverage classes (results are sorted worst-first). Omit for all classes. |
 | `methodsPerClass` | int | No | Keep at most this many lowest-branch-coverage methods per class, trimming the rest. Omit to keep all methods. |
+| `sessionId` | string | No | Resolves the session-scoped state file for concurrent isolation. |
 
 ### `GetFileCoverage`
 | Parameter | Type | Required | Description |
