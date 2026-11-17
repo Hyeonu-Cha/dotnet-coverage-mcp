@@ -35,6 +35,7 @@ Autonomously run tests, identify coverage gaps, write targeted unit tests, and r
 2. Call `GetSourceFiles` with `sourcePath` and `lineBudget` to get:
    - `batches` — files grouped by line budget (small files together, large files solo), each file carrying its `lines` and `methodCount` metadata
    - `batchCount` — how many cycles to expect
+   - `excluded` — files that are **not** targets: entry points (`Program.cs`), DI registration, generated code, data-only models, and test projects. Do not write tests for them and do not count them toward the 80% goal. If the user insists on one of them, pass it to `GetSourceFiles` by path; named files are always kept
 
 Example response:
 ```json
@@ -123,7 +124,7 @@ For each file in the batch:
 ### Step 6: Repeat or advance
 - **If batch has remaining files below 80%** → return to Step 2 (same batch, fewer files)
 - **If all files in batch are done OR 3 cycles with no improvement** → move to next batch
-- **If all batches complete** → report final coverage summary
+- **If all batches complete** → report final coverage summary, including how many files were excluded and why (by kind)
 
 ## Termination Criteria
 
