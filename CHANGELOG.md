@@ -47,6 +47,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   top-level class. An `insertAfterAnchor` is now found in whichever class
   holds it, not only the last one.
 
+- Docs: the `improve-test-coverage` and `scaffold-test-files` skills and the
+  agent told the model to use NUnit attributes (`[SetUp]`, `[Test]`,
+  `[TestCase]`, `[TestFixture]`) whatever the project used; they now say to
+  follow the framework the test project references. README notes that clients
+  list the tools in snake_case, and CONTRIBUTING documents the
+  `<type>/<summary>` branch naming rule.
+
 ### Added
 - `targetClass` parameter on `AppendTestCode` to name the class to insert into,
   nested classes included. When it cannot be honoured the call fails with
