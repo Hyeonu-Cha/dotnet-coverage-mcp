@@ -25,46 +25,47 @@ public class CoberturaServiceTests : IDisposable
             Directory.Delete(_tempDir, true);
     }
 
-    // --- ParseSummary ---
+    // --- SummarizeClasses ---
 
     [Fact]
-    public void ParseSummary_ParsesClassesAndMethods()
+    public void SummarizeClasses_ReturnsClassesAndMethods()
     {
-        var path = WriteSummaryJson(@"{
-  ""coverage"": {
-    ""assemblies"": [{
-      ""classes"": [{
-        ""name"": ""MyApp.Foo"",
-        ""linecoverage"": 80.0,
-        ""branchcoverage"": 60.0,
-        ""methods"": [{
-          ""name"": ""DoWork"",
-          ""linecoverage"": 100.0,
-          ""branchcoverage"": 50.0
-        }]
-      }]
-    }]
-  }
-}");
-        var result = _sut.ParseSummary(path);
+        // Built from the Cobertura XML, not reportgenerator's Summary.json (which has no
+        // per-method data and a different schema). The per-file tools read the same report.
+        var path = WriteCoberturaXml(@"
+<coverage line-rate=""0.8"" branch-rate=""0.6"">
+  <packages><package><classes>
+    <class name=""MyApp.Foo"" filename=""Foo.cs"" line-rate=""0.8"" branch-rate=""0.6"">
+      <methods>
+        <method name=""DoWork"" signature=""()"" line-rate=""1.0"" branch-rate=""0.5"" />
+      </methods>
+    </class>
+  </classes></package></packages>
+</coverage>");
+        var result = _sut.SummarizeClasses(path);
 
         result.Should().HaveCount(1);
+        result[0].Class.Should().Be("MyApp.Foo");
+        result[0].LineCoverage.Should().Be(0.8);
+        result[0].BranchCoverage.Should().Be(0.6);
+        result[0].Methods.Should().ContainSingle(m => m.Name == "DoWork");
+        result[0].Methods[0].Branch.Should().Be(0.5);
     }
 
     [Fact]
-    public void ParseSummary_ThrowsOnMalformedJson()
+    public void SummarizeClasses_ThrowsOnMalformedXml()
     {
-        var path = WriteSummaryJson(@"{ ""bad"": true }");
+        var path = WriteCoberturaXml(@"<coverage><bad");
 
-        var act = () => _sut.ParseSummary(path);
-        act.Should().Throw<InvalidOperationException>();
+        var act = () => _sut.SummarizeClasses(path);
+        act.Should().Throw<System.Xml.XmlException>();
     }
 
     [Fact]
-    public void ParseSummary_HandlesEmptyAssemblies()
+    public void SummarizeClasses_HandlesEmptyReport()
     {
-        var path = WriteSummaryJson(@"{ ""coverage"": { ""assemblies"": [] } }");
-        _sut.ParseSummary(path).Should().BeEmpty();
+        var path = WriteCoberturaXml(@"<coverage line-rate=""1"" branch-rate=""1""><packages /></coverage>");
+        _sut.SummarizeClasses(path).Should().BeEmpty();
     }
 
     // --- GetFileCoverage ---
@@ -571,13 +572,6 @@ public class CoberturaServiceTests : IDisposable
     }
 
     // --- Helpers ---
-
-    private string WriteSummaryJson(string json)
-    {
-        var path = Path.Combine(_tempDir, $"Summary-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, json);
-        return path;
-    }
 
     private string WriteCoberturaXml(string xml, string? name = null)
     {
