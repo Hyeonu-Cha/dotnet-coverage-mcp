@@ -618,6 +618,17 @@ public class CoverageTools
 
     private const int MaxExcludedListed = 100;
 
+    // Recursive .cs enumeration that does not descend into or return reparse points
+    // (symlinks/junctions). A link inside the scope that points outside it would otherwise pull
+    // foreign files into the batch — and, for a .cs link to a secret file, into GetCoverageGaps'
+    // source snippets. Keeps the default Hidden|System skip of the simple GetFiles overload.
+    private static readonly EnumerationOptions NoFollowLinks = new()
+    {
+        RecurseSubdirectories = true,
+        AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System,
+        IgnoreInaccessible = true,
+    };
+
     // Capped: a large solution can have hundreds of DTOs or test files, and the count plus a
     // sample is enough to spot a misclassified file.
     private static IEnumerable<object> ExcludedSample(List<(string Path, NonTargetReason Reason)> excluded) =>
@@ -685,7 +696,7 @@ public class CoverageTools
                     var owners = new ProjectOwnerLookup();
                     // Projects nested under this one's folder (often its test project) own their
                     // own files; they are not part of this project's scope.
-                    filePaths = Directory.GetFiles(projectDir, "*.cs", SearchOption.AllDirectories)
+                    filePaths = Directory.GetFiles(projectDir, "*.cs", NoFollowLinks)
                         .Where(f => !_fileService.IsExcludedPath(f))
                         .Select(Path.GetFullPath)
                         .Where(f => string.Equals(owners.OwningProject(f), scopePath, StringComparison.OrdinalIgnoreCase))
@@ -696,7 +707,7 @@ public class CoverageTools
                 {
                     scope = "folder";
                     scopePath = Path.GetFullPath(path);
-                    filePaths = Directory.GetFiles(path, "*.cs", SearchOption.AllDirectories)
+                    filePaths = Directory.GetFiles(path, "*.cs", NoFollowLinks)
                         .Where(f => !_fileService.IsExcludedPath(f))
                         .Select(Path.GetFullPath)
                         .OrderBy(f => f)

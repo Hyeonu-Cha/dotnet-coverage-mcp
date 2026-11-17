@@ -104,4 +104,38 @@ public class GetSourceFilesTests : IDisposable
 
         BatchedNames(doc.RootElement).Should().Equal("Program.cs");
     }
+
+    [Fact]
+    public void Folder_DoesNotFollowSymlinkedDirectoryOutOfScope()
+    {
+        // A junction/symlink inside the scanned folder that points outside it must not drag
+        // foreign .cs files into the batches (they could be anywhere on disk).
+        var outside = Path.Combine(Path.GetTempPath(), $"gsf-out-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "Foreign.cs"),
+            "public class Foreign { public int F(int n) { if (n > 0) return 1; return 0; } }");
+        var link = Path.Combine(_dir, "linked");
+        try
+        {
+            if (!TryCreateDirectorySymlink(link, outside)) return; // no symlink privilege (e.g. Windows CI)
+
+            using var doc = JsonDocument.Parse(_sut.GetSourceFiles(_dir));
+
+            BatchedNames(doc.RootElement).Should().NotContain("Foreign.cs");
+        }
+        finally
+        {
+            try { Directory.Delete(link); } catch { }
+            try { Directory.Delete(outside, true); } catch { }
+        }
+    }
+
+    private static bool TryCreateDirectorySymlink(string link, string target)
+    {
+        try { Directory.CreateSymbolicLink(link, target); return true; }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            return false;
+        }
+    }
 }
