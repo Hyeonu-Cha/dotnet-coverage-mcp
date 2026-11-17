@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using DotNetCoverageMcp.Helpers;
@@ -10,7 +8,7 @@ namespace DotNetCoverageMcp.Services;
 
 public interface ICoberturaService
 {
-    List<SummaryClass> ParseSummary(string summaryJsonPath);
+    List<SummaryClass> SummarizeClasses(string coberturaXmlPath);
     FileCoverageResult GetFileCoverage(string coberturaXmlPath, string sourceFileName, double targetRate);
     UncoveredBranchesResult GetUncoveredBranches(string coberturaXmlPath, string methodName);
     DiffResult ComputeDiff(string currentXmlPath, string baselinePath);
@@ -72,51 +70,27 @@ public class CoberturaService : ICoberturaService
         _logger = logger;
     }
 
-    public List<SummaryClass> ParseSummary(string summaryJsonPath)
+    /// <summary>
+    /// A class/method coverage summary built from the Cobertura XML, reusing the parsed,
+    /// compiler-generated-folded <see cref="CoverageModel"/> that the per-file tools read.
+    /// reportgenerator's JsonSummary carries no per-method data and uses a different schema,
+    /// so the summary is sourced from the same report everything else reads, not from it.
+    /// Methods are ordered worst-branch-first so a <c>methodsPerClass</c> trim keeps the ones
+    /// that still need work; a class with no branches reports a branch rate of 1.
+    /// </summary>
+    public List<SummaryClass> SummarizeClasses(string coberturaXmlPath)
     {
-        var json = File.ReadAllText(summaryJsonPath);
-        var root = JsonNode.Parse(json);
-        var assemblies = root?["coverage"]?["assemblies"]?.AsArray()
-            ?? throw new InvalidOperationException("Unexpected Summary.json structure — could not find coverage.assemblies.");
-
-        var result = new List<SummaryClass>();
-
-        foreach (var assembly in assemblies)
-        {
-            var classes = assembly?["classes"]?.AsArray();
-            if (classes == null) continue;
-
-            foreach (var cls in classes)
-            {
-                var methods = cls?["methods"]?.AsArray();
-                var methodList = new List<SummaryMethod>();
-
-                if (methods != null)
-                {
-                    foreach (var method in methods)
-                    {
-                        var linePct = method?["linecoverage"]?.GetValue<double>() ?? 0;
-                        var branchPct = method?["branchcoverage"]?.GetValue<double>() ?? 0;
-                        methodList.Add(new SummaryMethod(
-                            method?["name"]?.GetValue<string>() ?? "",
-                            Math.Round(linePct / 100.0, 4),
-                            Math.Round(branchPct / 100.0, 4)));
-                    }
-                    methodList = methodList.OrderBy(m => m.Branch).ToList();
-                }
-
-                var classLinePct = cls?["linecoverage"]?.GetValue<double>() ?? 0;
-                var classBranchPct = cls?["branchcoverage"]?.GetValue<double>() ?? 0;
-
-                result.Add(new SummaryClass(
-                    cls?["name"]?.GetValue<string>() ?? "",
-                    Math.Round(classLinePct / 100.0, 4),
-                    Math.Round(classBranchPct / 100.0, 4),
-                    methodList));
-            }
-        }
-
-        return result;
+        var model = Load(coberturaXmlPath);
+        return model.Classes
+            .Select(c => new SummaryClass(
+                c.Name,
+                Math.Round(c.LineRate, 4),
+                Math.Round(c.BranchRate, 4),
+                c.Methods
+                    .Select(m => new SummaryMethod(m.Name, Math.Round(m.LineRate, 4), Math.Round(m.BranchRate, 4)))
+                    .OrderBy(m => m.Branch).ThenBy(m => m.Line)
+                    .ToList()))
+            .ToList();
     }
 
     // Parsed reports keyed by full path. An agent's loop queries the same report many times

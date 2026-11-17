@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-11-17
+### Fixed
+- `GetCoverageSummary` returned `parseFailed` on every real run. It parsed a
+  `Summary.json` shape (`assemblies[].classes[].methods[]` with `linecoverage`)
+  that `reportgenerator` does not produce: its JsonSummary nests classes under
+  `classesinassembly`, names the line rate `coverage`, makes `branchcoverage`
+  nullable, and carries no per-method data at all. `GetCoverageSummary` now
+  summarises the Cobertura XML directly, through the same parsed,
+  compiler-generated-folded model the per-file tools already use, so it keeps its
+  method-level, worst-branch-first output. Its first argument is now
+  `coberturaXmlPath` (with the usual `.coverage-state` / `sessionId` fallback that
+  `GetFileCoverage` and friends have), which also means it works when the run used
+  `skipReport: true`.
 
 ### Upgrading from 1.x
 - **.NET 10 or later is required** to run the tool (it was .NET 9).

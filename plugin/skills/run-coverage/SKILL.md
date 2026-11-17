@@ -51,7 +51,8 @@ The tool returns paths to:
 - `coverage.cobertura.xml` — detailed Cobertura XML report
 
 ### Step 3: Get coverage summary
-Call `GetCoverageSummary` with the `summaryJsonPath` returned from Step 2.
+Call `GetCoverageSummary` with the `coberturaXmlPath` returned from Step 2. (It reads the
+Cobertura XML directly, so it also works when the run used `skipReport: true`.)
 
 Returns a JSON array sorted by branch coverage (lowest first) with:
 - Class name
@@ -77,7 +78,7 @@ Class: MyService
 
 ## Validation
 - [ ] `RunTestsWithCoverage` completed without errors
-- [ ] `Summary.json` path was returned and passed to `GetCoverageSummary`
+- [ ] The `coverage.cobertura.xml` path was returned and passed to `GetCoverageSummary`
 - [ ] Coverage summary lists classes and methods with percentages
 - [ ] Methods below 80% are visually highlighted
 
@@ -88,4 +89,4 @@ Class: MyService
 | `missingExtension` error | The project runs on Microsoft.Testing.Platform and lacks the extension named in the message (usually `Microsoft.Testing.Extensions.CodeCoverage`); add that package and set `forceRestore: true` on the next run |
 | `reportgenerator` not found | Install via `dotnet tool install -g dotnet-reportgenerator-globaltool` |
 | `noTestsMatched` error | The filter selected nothing: omit it to run every test, or use a shorter name |
-| `Summary.json` not found | Check the path returned by `RunTestsWithCoverage`; ensure tests ran successfully |
+| Cobertura XML not found | Check the `coverage.cobertura.xml` path returned by `RunTestsWithCoverage`; ensure tests ran successfully |

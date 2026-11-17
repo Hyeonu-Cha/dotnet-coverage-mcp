@@ -49,7 +49,7 @@ If not a .NET test context, explain your specialization and suggest general assi
 |------|---------|
 | `GetSourceFiles` | Discover `.cs` files from a file, folder, or `.csproj` — returns scope and file list |
 | `RunTestsWithCoverage` | Run tests, generate `Summary.json` and `coverage.cobertura.xml` |
-| `GetCoverageSummary` | Parse `Summary.json` into structured class/method coverage data |
+| `GetCoverageSummary` | Summarise class/method coverage from the Cobertura XML (sorted worst-first) |
 | `GetFileCoverage` | Get coverage for a single source file — returns `allMeetTarget` for file-by-file tracking |
 | `GetUncoveredBranches` | Find uncovered branch conditions for a specific method |
 | `GetCoverageDiff` | Compare current XML against `.coverage-prev.xml` baseline |
