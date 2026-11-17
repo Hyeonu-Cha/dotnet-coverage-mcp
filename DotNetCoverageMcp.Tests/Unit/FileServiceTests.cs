@@ -26,6 +26,40 @@ public class FileServiceTests : IDisposable
 
     // --- AtomicWriteFile ---
 
+    // What antivirus or the search indexer does for a few milliseconds after a write: open
+    // the file without FILE_SHARE_DELETE. On Windows, replacing it then fails with "Access to
+    // the path is denied" (seen intermittently in ConcurrencyTests and possible for any
+    // AppendTestCode call). On Linux and macOS the replace succeeds anyway.
+    [Fact]
+    public async Task AtomicWriteFile_TargetBrieflyHeldOpen_RetriesInsteadOfFailing()
+    {
+        var path = Path.Combine(_tempDir, "held.txt");
+        File.WriteAllText(path, "old");
+        var handle = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var release = Task.Delay(100).ContinueWith(_ => handle.Dispose());
+
+        var write = Task.Run(() => _sut.AtomicWriteFile(path, "new"));
+        await Task.WhenAll(write, release);
+
+        File.ReadAllText(path).Should().Be("new");
+        Directory.GetFiles(_tempDir, ".tmp-*").Should().BeEmpty("the temp file is moved, not left behind");
+    }
+
+    [Fact]
+    public void AtomicWriteFile_TargetHeldOpenForGood_StillFailsAndCleansUp()
+    {
+        if (!OperatingSystem.IsWindows()) return; // the replace isn't blocked elsewhere
+        var path = Path.Combine(_tempDir, "locked.txt");
+        File.WriteAllText(path, "old");
+        using var handle = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        var act = () => _sut.AtomicWriteFile(path, "new");
+
+        var thrown = act.Should().Throw<Exception>().Which;
+        (thrown is IOException or UnauthorizedAccessException).Should().BeTrue(thrown.ToString());
+        Directory.GetFiles(_tempDir, ".tmp-*").Should().BeEmpty();
+    }
+
     [Fact]
     public void AtomicWriteFile_WritesContentCorrectly()
     {
