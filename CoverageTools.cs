@@ -69,6 +69,20 @@ public class CoverageTools
         if (string.IsNullOrWhiteSpace(testProjectPath))
             return JsonHelper.Error("invalidParameter", "testProjectPath must not be empty.");
 
+        // Resolve to a rooted path before anything else uses it. `dotnet test` takes the project
+        // as its first positional argument, so a raw value like "--help" or "-bl:evil.binlog"
+        // would be parsed as a CLI/MSBuild option (and could run arbitrary build logic or write
+        // files anywhere); a rooted path never is. A non-.csproj value is rejected up front.
+        string resolvedProjectPath;
+        try { resolvedProjectPath = Path.GetFullPath(testProjectPath); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return JsonHelper.Error("invalidParameter", $"testProjectPath is not a valid file path: {ex.Message}");
+        }
+        if (!resolvedProjectPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+            return JsonHelper.Error("invalidParameter", "testProjectPath must be a .csproj file.");
+        testProjectPath = resolvedProjectPath;
+
         try
         {
             _pathGuard.Validate(testProjectPath, nameof(testProjectPath));

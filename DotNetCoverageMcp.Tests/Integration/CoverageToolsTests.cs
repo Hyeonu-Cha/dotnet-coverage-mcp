@@ -40,6 +40,43 @@ public class CoverageToolsTests
     }
 
     [Theory]
+    [InlineData("--help")]                       // a dotnet CLI option
+    [InlineData("-bl:evil.binlog")]              // an MSBuild switch that writes a file
+    [InlineData("-flp:logfile=out.txt")]         // an MSBuild file-logger switch
+    [InlineData("proj.txt")]                     // not a project
+    [InlineData("SomeDirectory")]                // no .csproj extension
+    public async Task RunTestsWithCoverage_NonCsprojOrOptionPath_RejectedWithoutRunning(string testProjectPath)
+    {
+        // Regression: these used to reach `dotnet test <value>`, where the value was parsed as a
+        // CLI/MSBuild option instead of a project path (option injection).
+        var result = await _sut.RunTestsWithCoverage(testProjectPath, skipReport: true);
+
+        AssertError(result, "invalidParameter");
+        _processRunner.Verify(p => p.RunDotnetTestAsync(
+            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task RunTestsWithCoverage_ResolvesProjectPathToRooted()
+    {
+        _processRunner.Setup(p => p.RunDotnetTestAsync(
+            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "", "", 0, "/coverage.xml"));
+
+        await _sut.RunTestsWithCoverage("proj.csproj", null, "/dir", skipReport: true);
+
+        // The relative "proj.csproj" is passed to dotnet as a rooted path, never as a bare token
+        // that could be read as an option.
+        _processRunner.Verify(p => p.RunDotnetTestAsync(
+            It.Is<string>(s => Path.IsPathRooted(s) && s.EndsWith("proj.csproj", StringComparison.Ordinal)),
+            It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(),
+            It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("*")]
