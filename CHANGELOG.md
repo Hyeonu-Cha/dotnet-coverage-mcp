@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exact `FullyQualifiedName=` match that needs the full namespace. The filter is
   now passed to `dotnet test --filter` unchanged, so dotted names, `A|B` and
   `Category=Unit` all work.
+- A failing test was reported as `buildError` with a 1500-character log tail,
+  and the coverage report was discarded even though every other test ran.
+  Failing tests now return `testsFailed` with each failure's test name,
+  assertion message and top stack frames in user code (up to 10), plus the
+  Cobertura path, which stays usable by `GetFileCoverage` and friends.
+- A run where no test matched the filter is now `noTestsMatched` instead of
+  success with an all-zero report.
+- `buildError` now lists the compiler errors, each once, instead of a log tail.
+
+### Changed
+- `RunTestsWithCoverage` writes a TRX file (`--logger trx`) and reports
+  `Passed / Failed / Skipped` counts on success.
 
 ### Added
 - End-to-end tests that run `RunTestsWithCoverage` with real `dotnet test`

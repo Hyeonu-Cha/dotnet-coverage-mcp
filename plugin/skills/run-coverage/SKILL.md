@@ -86,5 +86,5 @@ Class: MyService
 | Pitfall | Solution |
 |---------|----------|
 | `reportgenerator` not found | Install via `dotnet tool install -g dotnet-reportgenerator-globaltool` |
-| Filter matches no tests | Broaden the filter or use a partial class name |
+| `noTestsMatched` error | The filter selected nothing: omit it to run every test, or use a shorter name |
 | `Summary.json` not found | Check the path returned by `RunTestsWithCoverage`; ensure tests ran successfully |
