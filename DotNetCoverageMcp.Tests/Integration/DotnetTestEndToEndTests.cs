@@ -90,6 +90,12 @@ public class DotnetTestEndToEndTests : IClassFixture<SampleProjectFixture>
         using var branches = JsonDocument.Parse(_sut.GetUncoveredBranches(xmlPath, "AddAsync"));
         branches.RootElement.TryGetProperty("errorType", out _).Should().BeFalse(because: branches.RootElement.ToString());
         branches.RootElement.GetProperty("matchCount").GetInt32().Should().Be(1);
+
+        // AddAsync(1, 2) never takes `if (a < 0)`; coverlet records that as a 50% condition.
+        var method = branches.RootElement.GetProperty("methods").EnumerateArray().Single();
+        method.GetProperty("method").GetString().Should().Be("AddAsync");
+        method.GetProperty("uncoveredBranches")[0].GetProperty("missing")[0].GetString()
+            .Should().Contain("50% covered");
     }
 
     private async Task<XDocument> RunAndGetCoverageXml(string? filter) =>

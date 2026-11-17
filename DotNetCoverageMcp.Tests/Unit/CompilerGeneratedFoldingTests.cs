@@ -185,6 +185,32 @@ public class CompilerGeneratedFoldingTests : IDisposable
     }
 
     [Fact]
+    public void HalfCoveredIf_IsReportedAsUncovered()
+    {
+        // Regression: coverlet writes a one-sided `if` as one jump condition at 50%. Only 0%
+        // conditions used to be listed, so this, the most common gap, never showed up.
+        var path = Report(Class("App.Calc", Method("Classify",
+            Line(9, 3, "100% (2/2)", """<condition number="7" type="jump" coverage="100%" />""") +
+            Line(10, 1, "50% (1/2)", """<condition number="23" type="jump" coverage="50%" />"""),
+            "(System.Int32)", br: "0.75")));
+
+        var branch = _sut.GetUncoveredBranches(path, "Classify").Methods.Single().UncoveredBranches.Single();
+
+        branch.Line.Should().Be(10);
+        branch.Missing.Single().Should().Be("condition 23 (jump, 50% covered)");
+    }
+
+    [Fact]
+    public void LineTotalsWithoutConditionElements_StillReportTheGap()
+    {
+        var path = Report(Class("App.Calc", Method("Pick",
+            """<line number="4" hits="1" branch="True" condition-coverage="66% (2/3)" />""", br: "0.66")));
+
+        _sut.GetUncoveredBranches(path, "Pick").Methods.Single().UncoveredBranches.Single().Missing
+            .Should().Equal("1 of 3 branch outcomes not covered");
+    }
+
+    [Fact]
     public void ReparsesWhenTheReportChanges()
     {
         var path = Report(Class("App.Svc", Method("Run", Line(5, 0), lr: "0"), lr: "0"));

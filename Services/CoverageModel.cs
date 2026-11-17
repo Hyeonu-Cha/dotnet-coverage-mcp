@@ -168,9 +168,12 @@ internal sealed record CoverageModel(IReadOnlyList<string> SourceRoots, double L
         method.Descendants("line").Select(l =>
         {
             var conditions = l.Descendants("condition").ToList();
+            // Anything short of 100% has an outcome no test reached. Coverlet writes an `if`
+            // that only ever went one way as a single jump condition at 50%, not 0%, so
+            // listing only 0% conditions (as an earlier version did) missed the most common gap.
             var missing = conditions
-                .Where(c => (string?)c.Attribute("coverage") == "0%")
-                .Select(c => $"condition {(string?)c.Attribute("number")} ({(string?)c.Attribute("type")})")
+                .Where(c => (string?)c.Attribute("coverage") is { } cov && cov != "100%")
+                .Select(c => $"condition {(string?)c.Attribute("number")} ({(string?)c.Attribute("type")}, {(string?)c.Attribute("coverage")} covered)")
                 .ToList();
 
             int covered, total;
@@ -179,11 +182,14 @@ internal sealed record CoverageModel(IReadOnlyList<string> SourceRoots, double L
             {
                 covered = int.Parse(cc.Groups[1].Value, CultureInfo.InvariantCulture);
                 total = int.Parse(cc.Groups[2].Value, CultureInfo.InvariantCulture);
+                // Some writers give only the line's totals, without <condition> elements.
+                if (missing.Count == 0 && covered < total)
+                    missing.Add($"{total - covered} of {total} branch outcomes not covered");
             }
             else
             {
                 total = conditions.Count;
-                covered = total - missing.Count;
+                covered = conditions.Count(c => (string?)c.Attribute("coverage") != "0%");
             }
 
             return new LineCov(

@@ -78,7 +78,7 @@ From all non-done files in the batch, pick the **3 lowest branch-coverage method
 ### Step 3: Find uncovered branches
 For each target method, call `GetUncoveredBranches` with `coberturaXmlPath` and the method name.
 
-Note which branch conditions (`branch-N-true`, `branch-N-false`) are uncovered and what they represent.
+Each entry is a source line with its uncovered conditions, e.g. `condition 23 (jump, 50% covered)`: the `if`/`?:`/`&&` on that line only ever went one way, so write a test for the other outcome. `0% covered` means neither outcome ran (usually the line itself never executed). Read that line in the source to see which input takes the missing path.
 
 ### Step 4: Write targeted tests for the batch
 For each uncovered branch, write a focused unit test using `AppendTestCode`:

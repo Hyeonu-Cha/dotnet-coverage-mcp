@@ -70,6 +70,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nested under it (a common layout) contributed its test files as targets. A
   project scope now stops at nested projects.
 
+- `GetUncoveredBranches` missed the most common gap. It listed only conditions
+  at `0%`, but coverlet records an `if` that only ever went one way as a single
+  jump condition at `50%`, so one-sided branches never showed up. Any condition
+  below 100% is now listed, with its coverage
+  (`condition 23 (jump, 50% covered)`), and a line with branch totals but no
+  condition elements is reported as `N of M branch outcomes not covered`.
 - Async methods could not be found by name: coverlet reports their bodies as
   `MoveNext` inside a generated `<Name>d__N` class, so `GetUncoveredBranches`
   returned `noMatch`, `GetFileCoverage` listed them as separate classes, and
