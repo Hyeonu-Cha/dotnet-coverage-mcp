@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using DotNetCoverageMcp.Helpers;
 using DotNetCoverageMcp.Services;
@@ -43,7 +44,7 @@ public class CoverageTools
 
     // --- 1. RunTestsWithCoverage ---
 
-    [McpServerTool]
+    [McpServerTool(Title = "Run tests with coverage", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = true)]
     [Description("Run `dotnet test` with code coverage and generate a JSON summary. Returns pass/fail/skip counts and paths to Summary.json and the Cobertura XML. Uses coverlet (XPlat Code Coverage) on VSTest, or Microsoft's CodeCoverage extension when the repository's global.json selects Microsoft.Testing.Platform.")]
     public async Task<string> RunTestsWithCoverage(
         [Description("Absolute path to the .csproj test project. Must be inside COVERAGE_MCP_ALLOWED_ROOT when that environment variable is set.")]
@@ -60,6 +61,9 @@ public class CoverageTools
         string? includeClass = null,
         [Description("When true, skips the reportgenerator JSON summary step and returns only the Cobertura XML path. Faster for the inner test loop, where per-file tools (GetFileCoverage/GetUncoveredBranches/GetCoverageDiff) read the XML directly. Leave false when you need GetCoverageSummary's Summary.json.")]
         bool skipReport = false,
+        // Bound by the SDK, not part of the tool schema: forwards progress notifications when
+        // the client sent a progress token, so a long build/test run doesn't look hung.
+        IProgress<ProgressNotificationValue>? progress = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(testProjectPath))
@@ -90,8 +94,11 @@ public class CoverageTools
         _fileService.SafeDelete(resultsDir);
         _fileService.SafeDelete(reportDir);
 
+        var steps = progress == null ? null : new StepProgress(progress);
+        steps?.Report($"Starting dotnet test for {Path.GetFileName(testProjectPath)}");
+
         var testResult = await _processRunner.RunDotnetTestAsync(
-            testProjectPath, filter, resultsDir, workingDir, forceRestore, includeClass, cancellationToken);
+            testProjectPath, filter, resultsDir, workingDir, forceRestore, includeClass, steps, cancellationToken);
 
         switch (testResult.Outcome)
         {
@@ -155,6 +162,7 @@ public class CoverageTools
         ReportResult reportResult;
         try
         {
+            steps?.Report("Generating coverage summary");
             reportResult = await _processRunner.RunReportGeneratorAsync(
                 testResult.CoverageXmlPath, reportDir, workingDir, cancellationToken);
         }
@@ -176,7 +184,7 @@ public class CoverageTools
 
     // --- 2. GetCoverageSummary ---
 
-    [McpServerTool]
+    [McpServerTool(Title = "Coverage summary", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Parse Summary.json into class/method coverage data, sorted worst-first by branch coverage. Optional belowTarget/topN/methodsPerClass filters trim the response to the classes and methods that still need work.")]
     public string GetCoverageSummary(
         [Description("Absolute path to the Summary.json produced by reportgenerator (returned by RunTestsWithCoverage).")]
@@ -230,7 +238,7 @@ public class CoverageTools
 
     // --- 3. GetUncoveredBranches ---
 
-    [McpServerTool]
+    [McpServerTool(Title = "Uncovered branches of a method", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("List uncovered branches for methods matching `methodName` in Cobertura XML (partial match supported).")]
     public string GetUncoveredBranches(
         [Description("Absolute path to coverage.cobertura.xml. Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when the file is not found at this path.")]
@@ -264,7 +272,7 @@ public class CoverageTools
 
     // --- 4. AppendTestCode ---
 
-    [McpServerTool]
+    [McpServerTool(Title = "Append test code", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Insert C# code into a test file via Roslyn AST (string fallback). By default the code goes into the file's test class (the last top-level class with test attributes); pass `targetClass` or `insertAfterAnchor` to choose. Code that is not valid C# member syntax is rejected with `syntaxError` and the file is left unchanged.")]
     public async Task<string> AppendTestCode(
         [Description("Absolute path to the target .cs test file. Must already exist; the file is rewritten atomically.")]
@@ -312,7 +320,7 @@ public class CoverageTools
 
     // --- 5. GetCoverageDiff ---
 
-    [McpServerTool]
+    [McpServerTool(Title = "Coverage diff since last call", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Diff current coverage against the saved baseline (method-level changes, including added/removed). Updates the baseline afterwards.")]
     public string GetCoverageDiff(
         [Description("Absolute path to the current coverage.cobertura.xml. Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when the file is not found at this path.")]
@@ -369,7 +377,7 @@ public class CoverageTools
 
     // --- 6. GetFileCoverage ---
 
-    [McpServerTool]
+    [McpServerTool(Title = "Coverage of one file", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Per-file class/method coverage from Cobertura XML. `allMeetTarget` is true when every class meets `targetRate` for line and branch.")]
     public string GetFileCoverage(
         [Description("Absolute path to coverage.cobertura.xml. Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when the file is not found at this path.")]
@@ -412,7 +420,7 @@ public class CoverageTools
 
     // --- 6b. GetCoverageGaps ---
 
-    [McpServerTool]
+    [McpServerTool(Title = "Coverage gaps per file", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("What to test next, for a whole scope in one call. For each file in the scope, reports whether it meets `targetRate` on both lines and branches; for each file below it, returns the fewest methods whose uncovered lines and branches close that file's gap, with the uncovered line ranges, the uncovered branch conditions, and the source around them. Replaces one GetFileCoverage per file plus one GetUncoveredBranches per method in each test cycle. Non-target files (entry points, DI registration, generated code, models, test projects) are skipped as in GetSourceFiles.")]
     public string GetCoverageGaps(
         [Description("Absolute path to coverage.cobertura.xml (returned by RunTestsWithCoverage). Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when not found.")]
@@ -472,7 +480,7 @@ public class CoverageTools
 
     // --- 6c. GetTestEnvironment ---
 
-    [McpServerTool]
+    [McpServerTool(Title = "Detect test stack", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Detect a test project's stack: test framework (xUnit v2/v3, NUnit, MSTest) with the attributes to use for tests, data-driven cases, setup and teardown; runner (VSTest or Microsoft.Testing.Platform); coverage collector; mocking and assertion libraries; integration-test packages. Call once per test project before writing tests, and write every test in exactly this stack. Reads obj/project.assets.json when the project is restored, otherwise the .csproj.")]
     public string GetTestEnvironment(
         [Description("Absolute path to the test project's .csproj.")]
@@ -496,7 +504,7 @@ public class CoverageTools
 
     // --- 7. GetSourceFiles ---
 
-    [McpServerTool]
+    [McpServerTool(Title = "Discover source files", ReadOnly = true, Idempotent = true, OpenWorld = false)]
     [Description("Discover .cs files from a file/folder/.csproj/comma-separated list and group into batches sized by `lineBudget`. For a folder or project, files that are not test targets (entry points, DI registration, generated code, data-only models) are left out of the batches and listed under `excluded` with the reason; files passed explicitly are always kept.")]
     public string GetSourceFiles(
         [Description("A single .cs file, a directory to scan recursively, a .csproj file, or a comma/semicolon-separated list of .cs file paths. Build/obj output is excluded automatically.")]
@@ -726,7 +734,7 @@ public class CoverageTools
 
     // --- 8. CleanupSession ---
 
-    [McpServerTool]
+    [McpServerTool(Title = "Clean up coverage artifacts", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
     [Description("Remove session state files and TestResults/coveragereport directories. Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes`.")]
     public string CleanupSession(
         [Description("Project working directory containing .mcp-coverage/, TestResults*, and coveragereport* artifacts to clean. Must be inside COVERAGE_MCP_ALLOWED_ROOT when that environment variable is set.")]
@@ -744,6 +752,17 @@ public class CoverageTools
     }
 
     // --- Private helpers ---
+
+    /// <summary>
+    /// Turns step messages into MCP progress notifications with an increasing counter. Reports
+    /// synchronously and in order, unlike System.Progress, which posts to the thread pool.
+    /// </summary>
+    private sealed class StepProgress(IProgress<ProgressNotificationValue> inner) : IProgress<string>
+    {
+        private int _step;
+        public void Report(string message) =>
+            inner.Report(new ProgressNotificationValue { Progress = Interlocked.Increment(ref _step), Message = message });
+    }
 
     private const int MaxBuildErrors = 20;
 

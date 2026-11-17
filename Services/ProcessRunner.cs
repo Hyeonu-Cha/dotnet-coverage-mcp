@@ -17,7 +17,7 @@ public interface IProcessRunner
 {
     Task<TestRunResult> RunDotnetTestAsync(
         string testProjectPath, string? filter, string resultsDir,
-        string workingDir, bool forceRestore, string? includeClass, CancellationToken ct);
+        string workingDir, bool forceRestore, string? includeClass, IProgress<string>? progress, CancellationToken ct);
 
     Task<ReportResult> RunReportGeneratorAsync(
         string xmlPath, string reportDir, string workingDir, CancellationToken ct = default);
@@ -43,7 +43,7 @@ public class ProcessRunner : IProcessRunner
 
     public async Task<TestRunResult> RunDotnetTestAsync(
         string testProjectPath, string? filter, string resultsDir,
-        string workingDir, bool forceRestore, string? includeClass, CancellationToken ct)
+        string workingDir, bool forceRestore, string? includeClass, IProgress<string>? progress, CancellationToken ct)
     {
         var psi = new ProcessStartInfo
         {
@@ -91,7 +91,9 @@ public class ProcessRunner : IProcessRunner
                 try { process.Kill(entireProcessTree: true); } catch { }
             });
 
-            var outTask = process.StandardOutput.ReadToEndAsync();
+            // stdout is read line by line so milestones (projects built, tests started, the
+            // result line) can be reported while a long run is still going.
+            var outTask = ReadLinesAsync(process.StandardOutput, progress);
             var errTask = process.StandardError.ReadToEndAsync();
             var exitTask = process.WaitForExitAsync(linkedCts.Token);
 
@@ -263,6 +265,42 @@ public class ProcessRunner : IProcessRunner
         // Non-zero exit with no failed test: the run was aborted, e.g. by the hang timeout.
         _ => exitCode == 0 ? TestRunOutcome.Success : TestRunOutcome.TestsFailed
     };
+
+    private static async Task<string> ReadLinesAsync(StreamReader reader, IProgress<string>? progress)
+    {
+        var output = new System.Text.StringBuilder();
+        while (await reader.ReadLineAsync() is { } line)
+        {
+            output.AppendLine(line);
+            if (progress != null && ProgressMessage(line) is { } message)
+                progress.Report(message);
+        }
+        return output.ToString();
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex BuiltRx =
+        new(@"^\s+(\S+) -> .+\.(?:dll|exe)\s*$", System.Text.RegularExpressions.RegexOptions.Compiled);
+    private static readonly System.Text.RegularExpressions.Regex TestsStartedRx =
+        new(@"^(?:Test run for|Running tests from) (.+?\.(?:dll|exe))", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// The progress message for a line of `dotnet test` output, or null for the many lines
+    /// that are not milestones. Shapes are from real VSTest and MTP runs.
+    /// </summary>
+    internal static string? ProgressMessage(string line)
+    {
+        if (line.StartsWith("  Determining projects to restore", StringComparison.Ordinal)
+            || line.StartsWith("Determining projects to restore", StringComparison.Ordinal))
+            return "Restoring packages";
+        if (BuiltRx.Match(line) is { Success: true } built) return $"Built {built.Groups[1].Value}";
+        if (TestsStartedRx.Match(line) is { Success: true } started)
+            return $"Running tests in {Path.GetFileName(started.Groups[1].Value)}";
+        var trimmed = line.Trim();
+        if (trimmed.StartsWith("Passed!", StringComparison.Ordinal) || trimmed.StartsWith("Failed!", StringComparison.Ordinal)
+            || trimmed.StartsWith("Test run summary:", StringComparison.Ordinal))
+            return trimmed.Length <= 160 ? trimmed : trimmed[..160];
+        return null;
+    }
 
     internal static bool RunsAllTests(string? filter) =>
         string.IsNullOrWhiteSpace(filter) || filter.Trim() == "*";

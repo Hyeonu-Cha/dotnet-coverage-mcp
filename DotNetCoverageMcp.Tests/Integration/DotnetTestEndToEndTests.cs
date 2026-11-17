@@ -61,6 +61,19 @@ public class DotnetTestEndToEndTests : IClassFixture<SampleProjectFixture>
     }
 
     [Fact]
+    public async Task RunTestsWithCoverage_ReportsProgressDuringTheRun()
+    {
+        var messages = new List<string>();
+        var progress = new SyncProgress(v => { lock (messages) messages.Add(v.Message!); });
+
+        await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, skipReport: true, progress: progress);
+
+        messages.Should().HaveElementAt(0, "Starting dotnet test for SampleLib.Tests.csproj");
+        messages.Should().Contain("Running tests in SampleLib.Tests.dll");
+        messages.Should().Contain(m => m.StartsWith("Passed!", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RunTestsWithCoverage_PipeFilter_RunsBothTests()
     {
         var xml = await RunAndGetCoverageXml("Add_ReturnsSum|Classify_Negative");

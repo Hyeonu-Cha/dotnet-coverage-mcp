@@ -92,6 +92,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method no longer shows it as removed and re-added.
 
 ### Added
+- MCP tool annotations on every tool: the six query tools are read-only and
+  idempotent, `cleanup_session` is the only destructive one (the SDK's default
+  is destructive, so the others now say they are not), and only
+  `run_tests_with_coverage` is open-world. The smoke test checks them on every
+  PR.
+- Server instructions in the `initialize` result describing the intended
+  workflow, so clients put it in the model's context before a tool is chosen.
+- Progress notifications from `run_tests_with_coverage` when the client sends
+  a progress token: restore, each project built, tests started, and the result
+  line, read from `dotnet test` output as it runs (VSTest and MTP).
 - Microsoft.Testing.Platform support in `RunTestsWithCoverage`. When the
   repository's `global.json` selects MTP (on the .NET 10 SDK and later, MTP
   projects cannot run in `dotnet test`'s default VSTest mode at all), the run

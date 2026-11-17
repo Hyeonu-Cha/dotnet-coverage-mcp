@@ -59,6 +59,18 @@ public class DotnetTestMtpEndToEndTests : IClassFixture<SampleProjectMtpFixture>
     }
 
     [Fact]
+    public async Task ReportsProgressFromMtpOutput()
+    {
+        var messages = new List<string>();
+        var progress = new SyncProgress(v => { lock (messages) messages.Add(v.Message!); });
+
+        await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, skipReport: true, progress: progress);
+
+        messages.Should().Contain("Running tests in SampleLib.Tests.dll", because: string.Join(" | ", messages));
+        messages.Should().Contain(m => m.StartsWith("Test run summary:", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ClassDotMethodFilter_RunsOnlyThatTest()
     {
         var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath, "CalculatorTests.Add_ReturnsSum", skipReport: true);
