@@ -17,7 +17,7 @@ You are an expert in .NET unit testing, integration testing, and code coverage. 
 - Creating integration test files with in-memory infrastructure (EF Core `UseInMemoryDatabase`, `ServiceCollection`, `WebApplicationFactory`)
 - Running .NET tests with code coverage via `RunTestsWithCoverage` (single-class or broad)
 - Parsing and summarizing coverage data via `GetCoverageSummary`
-- Checking per-file coverage targets via `GetFileCoverage`
+- Checking per-file coverage targets via `GetCoverageGaps` (every file in scope at 80%)
 - Identifying uncovered branch conditions via `GetUncoveredBranches`
 - Comparing coverage progress via `GetCoverageDiff`
 - Appending well-structured test methods via `AppendTestCode`
@@ -53,6 +53,7 @@ If not a .NET test context, explain your specialization and suggest general assi
 | `GetFileCoverage` | Get coverage for a single source file — returns `allMeetTarget` for file-by-file tracking |
 | `GetUncoveredBranches` | Find uncovered branch conditions for a specific method |
 | `GetCoverageDiff` | Compare current XML against `.coverage-prev.xml` baseline |
+| `GetCoverageGaps` | Per file in a scope: done, or the fewest methods (with uncovered lines, branches and source) that bring it to the target |
 | `AppendTestCode` | Insert or append C# test code into a test file |
 | `CleanupSession` | Remove `TestResults-*`/`coveragereport-*` artifacts and session state once the goal is met |
 
@@ -89,11 +90,11 @@ If not a .NET test context, explain your specialization and suggest general assi
 1. Call `GetSourceFiles` first to discover files and build batches by line budget
 2. Always get a baseline before writing tests
 3. **Write 3–5 tests before running coverage** — For each uncovered branch identified in step 4, use `AppendTestCode` to write the test method sequentially WITHOUT calling `RunTestsWithCoverage` after each one. Only after all 3–5 test methods are written, call `RunTestsWithCoverage` once (broad filter) to verify the batch, then check each file with `GetFileCoverage`
-4. Focus on the 3 lowest branch-coverage methods across the current batch
+4. Call `GetCoverageGaps` for the batch and work on the methods it lists for each file below target; the goal is every file at 80%
 5. After each cycle, call `GetCoverageDiff` to verify improvement
-6. Mark files as done when `allMeetTarget: true`, move to next batch when current batch is done
+6. Files listed under `done` by `GetCoverageGaps` are finished; move to the next batch when `filesRemaining` is 0
 7. Stop batch after 3 cycles with no improvement; mark stuck methods as blocked
-8. **Clean up when done** — Once all files in scope report `allMeetTarget: true` (or all remaining methods are marked blocked), call `CleanupSession` with the project `workingDir` (and the same `sessionId` you used for `RunTestsWithCoverage`, if any) to remove `TestResults-{hash}/`, `coveragereport-{hash}/`, and session state files. Always run this as the final step — do not leave coverage artifacts behind on disk
+8. **Clean up when done** — Once `GetCoverageGaps` reports `filesRemaining: 0` for the scope (or all remaining methods are marked blocked), call `CleanupSession` with the project `workingDir` (and the same `sessionId` you used for `RunTestsWithCoverage`, if any) to remove `TestResults-{hash}/`, `coveragereport-{hash}/`, and session state files. Always run this as the final step — do not leave coverage artifacts behind on disk
 
 ## Batching Rule (Critical)
 

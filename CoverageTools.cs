@@ -395,6 +395,66 @@ public class CoverageTools
         }
     }
 
+    // --- 6b. GetCoverageGaps ---
+
+    [McpServerTool]
+    [Description("What to test next, for a whole scope in one call. For each file in the scope, reports whether it meets `targetRate` on both lines and branches; for each file below it, returns the fewest methods whose uncovered lines and branches close that file's gap, with the uncovered line ranges, the uncovered branch conditions, and the source around them. Replaces one GetFileCoverage per file plus one GetUncoveredBranches per method in each test cycle. Non-target files (entry points, DI registration, generated code, models, test projects) are skipped as in GetSourceFiles.")]
+    public string GetCoverageGaps(
+        [Description("Absolute path to coverage.cobertura.xml (returned by RunTestsWithCoverage). Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when not found.")]
+        string coberturaXmlPath,
+        [Description("Scope: a .cs file, a folder, a .csproj, or a comma-separated list of .cs files (e.g. one batch from GetSourceFiles).")]
+        string path,
+        [Description("Target per file as a fraction in [0.0, 1.0], applied to both line and branch coverage. Pass 0.8, not 80. Default 0.8.")]
+        double targetRate = 0.8,
+        [Description("Number of below-target files returned in detail, smallest gap first. The others are listed with their rates only. Default 5.")]
+        int maxFiles = 5,
+        [Description("Maximum methods returned per file. Default 5.")]
+        int maxMethodsPerFile = 5,
+        [Description("Include the source lines around each gap (2 lines of context, at most 30 lines per method). Default true.")]
+        bool includeSource = true,
+        [Description("Optional session token used to resolve the session-scoped .coverage-state-{hash} fallback. Omit for single-agent use.")]
+        string? sessionId = null)
+    {
+        if (targetRate is < 0.0 or > 1.0)
+            return JsonHelper.Error("invalidParameter", "targetRate must be between 0.0 and 1.0.");
+        if (maxFiles < 1 || maxMethodsPerFile < 1)
+            return JsonHelper.Error("invalidParameter", "maxFiles and maxMethodsPerFile must be at least 1.");
+
+        try { _pathGuard.Validate(coberturaXmlPath, nameof(coberturaXmlPath)); }
+        catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
+
+        var resolvedPath = _sessionManager.ResolveCoberturaPath(coberturaXmlPath, sessionId);
+        if (resolvedPath == null)
+            return JsonHelper.Error("fileNotFound", "Cobertura XML not found and no .coverage-state fallback available.");
+
+        if (!TryDiscoverScope(path, out var scope, out var error))
+            return error;
+
+        try
+        {
+            var gaps = _coberturaService.GetCoverageGaps(
+                resolvedPath, scope.Targets, targetRate, maxFiles, maxMethodsPerFile, includeSource);
+            return JsonHelper.Serialize(new
+            {
+                gaps.TargetRate,
+                gaps.FilesInScope,
+                gaps.FilesDone,
+                gaps.FilesRemaining,
+                gaps.Remaining,
+                gaps.MoreRemaining,
+                gaps.Done,
+                // In the scope but absent from the report: usually the test project doesn't
+                // reference the project these files belong to, so nothing can cover them yet.
+                gaps.NotInReport,
+                excludedCount = scope.Excluded.Count
+            });
+        }
+        catch (Exception ex)
+        {
+            return JsonHelper.Error("parseFailed", $"Failed to parse Cobertura XML: {ex.Message}");
+        }
+    }
+
     // --- 7. GetSourceFiles ---
 
     [McpServerTool]
@@ -408,86 +468,13 @@ public class CoverageTools
         if (lineBudget < 1)
             return JsonHelper.Error("invalidParameter", "lineBudget must be at least 1.");
 
-        List<string> filePaths;
-        string scope;
-        string? scopePath = null;
+        if (!TryDiscoverScope(path, out var discovered, out var error))
+            return error;
+        var (scope, scopePath, targets, excluded) = discovered;
 
-        if (path.Contains(',') || path.Contains(';'))
-        {
-            scope = "list";
-            var paths = path.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries);
-            try
-            {
-                foreach (var p in paths) _pathGuard.Validate(p.Trim(), nameof(path));
-            }
-            catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
-
-            filePaths = paths
-                .Select(p => p.Trim())
-                .Where(p => File.Exists(p) && p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
-                .Select(Path.GetFullPath)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(f => f)
-                .ToList();
-
-            if (filePaths.Count == 0)
-                return JsonHelper.Error("fileNotFound", "None of the files in the provided list were found or are .cs files.");
-        }
-        else
-        {
-            try { _pathGuard.Validate(path, nameof(path)); }
-            catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
-
-            if (File.Exists(path) && path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
-            {
-                scope = "file";
-                filePaths = [Path.GetFullPath(path)];
-            }
-            else if (File.Exists(path) && path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
-            {
-                scope = "project";
-                scopePath = Path.GetFullPath(path);
-                var projectDir = Path.GetDirectoryName(scopePath) ?? Directory.GetCurrentDirectory();
-                var owners = new ProjectOwnerLookup();
-                // Projects nested under this one's folder (often its test project) own their
-                // own files; they are not part of this project's scope.
-                filePaths = Directory.GetFiles(projectDir, "*.cs", SearchOption.AllDirectories)
-                    .Where(f => !_fileService.IsExcludedPath(f))
-                    .Select(Path.GetFullPath)
-                    .Where(f => string.Equals(owners.OwningProject(f), scopePath, StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(f => f)
-                    .ToList();
-            }
-            else if (Directory.Exists(path))
-            {
-                scope = "folder";
-                scopePath = Path.GetFullPath(path);
-                filePaths = Directory.GetFiles(path, "*.cs", SearchOption.AllDirectories)
-                    .Where(f => !_fileService.IsExcludedPath(f))
-                    .Select(Path.GetFullPath)
-                    .OrderBy(f => f)
-                    .ToList();
-            }
-            else
-            {
-                return JsonHelper.Error("fileNotFound", $"Path not found or not a .cs file, .csproj file, or directory: {path}");
-            }
-        }
-
-        // Files discovered from a folder or project are narrowed to test targets (see
-        // SourceFileClassifier). Files the caller names explicitly are always kept, which is
-        // also the way to override the classifier for a file it got wrong.
-        var classify = scope is "folder" or "project";
-        var projects = new ProjectOwnerLookup();
         var bag = new ConcurrentBag<(string path, int lines, int methodCount)>();
-        var excludedBag = new ConcurrentBag<(string Path, NonTargetReason Reason)>();
-        Parallel.ForEach(filePaths, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, f =>
+        Parallel.ForEach(targets, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, f =>
         {
-            if (classify && (projects.TestProjectReason(f) ?? ClassifyOrNull(f)) is { } reason)
-            {
-                excludedBag.Add((f, reason));
-                return;
-            }
             var (lines, methodCount) = _fileService.GetFileMetadata(f);
             bag.Add((f, lines, methodCount));
         });
@@ -538,22 +525,129 @@ public class CoverageTools
             lineBudget,
             batchCount = batches.Count,
             batches,
-            excludedCount = excludedBag.Count,
-            // Capped: a large solution can have hundreds of DTOs or test files, and the count
-            // plus a sample is enough to spot a misclassified file.
-            excluded = excludedBag
-                .OrderBy(e => e.Path, StringComparer.OrdinalIgnoreCase)
-                .Take(MaxExcludedListed)
-                .Select(e => new
-                {
-                    path = e.Path,
-                    kind = JsonNamingPolicy.CamelCase.ConvertName(e.Reason.Kind.ToString()),
-                    reason = e.Reason.Reason
-                })
+            excludedCount = excluded.Count,
+            excluded = ExcludedSample(excluded)
         });
     }
 
     private const int MaxExcludedListed = 100;
+
+    // Capped: a large solution can have hundreds of DTOs or test files, and the count plus a
+    // sample is enough to spot a misclassified file.
+    private static IEnumerable<object> ExcludedSample(List<(string Path, NonTargetReason Reason)> excluded) =>
+        excluded
+            .OrderBy(e => e.Path, StringComparer.OrdinalIgnoreCase)
+            .Take(MaxExcludedListed)
+            .Select(e => (object)new
+            {
+                path = e.Path,
+                kind = JsonNamingPolicy.CamelCase.ConvertName(e.Reason.Kind.ToString()),
+                reason = e.Reason.Reason
+            });
+
+    private sealed record ScopeFiles(
+        string Scope, string? ScopePath, List<string> Targets, List<(string Path, NonTargetReason Reason)> Excluded);
+
+    /// <summary>
+    /// Resolves a scope (one .cs file, a folder, a .csproj, or a comma/semicolon-separated
+    /// list) to its test-target files. Shared by GetSourceFiles and GetCoverageGaps so both
+    /// work on the same files. On failure, <paramref name="error"/> is the tool's error response.
+    /// </summary>
+    private bool TryDiscoverScope(string path, out ScopeFiles files, out string error)
+    {
+        files = null!;
+        error = "";
+        List<string> filePaths;
+        string scope;
+        string? scopePath = null;
+
+        try
+        {
+            if (path.Contains(',') || path.Contains(';'))
+            {
+                scope = "list";
+                var paths = path.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim()).ToList();
+                foreach (var p in paths) _pathGuard.Validate(p, nameof(path));
+
+                filePaths = paths
+                    .Where(p => File.Exists(p) && p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                    .Select(Path.GetFullPath)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(f => f)
+                    .ToList();
+
+                if (filePaths.Count == 0)
+                {
+                    error = JsonHelper.Error("fileNotFound", "None of the files in the provided list were found or are .cs files.");
+                    return false;
+                }
+            }
+            else
+            {
+                _pathGuard.Validate(path, nameof(path));
+
+                if (File.Exists(path) && path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                {
+                    scope = "file";
+                    filePaths = [Path.GetFullPath(path)];
+                }
+                else if (File.Exists(path) && path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+                {
+                    scope = "project";
+                    scopePath = Path.GetFullPath(path);
+                    var projectDir = Path.GetDirectoryName(scopePath) ?? Directory.GetCurrentDirectory();
+                    var owners = new ProjectOwnerLookup();
+                    // Projects nested under this one's folder (often its test project) own their
+                    // own files; they are not part of this project's scope.
+                    filePaths = Directory.GetFiles(projectDir, "*.cs", SearchOption.AllDirectories)
+                        .Where(f => !_fileService.IsExcludedPath(f))
+                        .Select(Path.GetFullPath)
+                        .Where(f => string.Equals(owners.OwningProject(f), scopePath, StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(f => f)
+                        .ToList();
+                }
+                else if (Directory.Exists(path))
+                {
+                    scope = "folder";
+                    scopePath = Path.GetFullPath(path);
+                    filePaths = Directory.GetFiles(path, "*.cs", SearchOption.AllDirectories)
+                        .Where(f => !_fileService.IsExcludedPath(f))
+                        .Select(Path.GetFullPath)
+                        .OrderBy(f => f)
+                        .ToList();
+                }
+                else
+                {
+                    error = JsonHelper.Error("fileNotFound", $"Path not found or not a .cs file, .csproj file, or directory: {path}");
+                    return false;
+                }
+            }
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            error = JsonHelper.Error("pathNotAllowed", ex.Message);
+            return false;
+        }
+
+        // Files discovered from a folder or project are narrowed to test targets (see
+        // SourceFileClassifier). Files the caller names explicitly are always kept, which is
+        // also the way to override the classifier for a file it got wrong.
+        var classify = scope is "folder" or "project";
+        var projects = new ProjectOwnerLookup();
+        var targets = new ConcurrentBag<string>();
+        var excluded = new ConcurrentBag<(string Path, NonTargetReason Reason)>();
+        Parallel.ForEach(filePaths, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, f =>
+        {
+            if (classify && (projects.TestProjectReason(f) ?? ClassifyOrNull(f)) is { } reason)
+                excluded.Add((f, reason));
+            else
+                targets.Add(f);
+        });
+
+        files = new ScopeFiles(scope, scopePath,
+            targets.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList(), excluded.ToList());
+        return true;
+    }
 
     /// <summary>
     /// Finds the .csproj that owns a source file (the nearest one walking up its folders),
