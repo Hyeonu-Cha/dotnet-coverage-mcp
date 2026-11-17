@@ -65,6 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   absolute, repo-relative and bare names, matches on whole path segments, and
   returns `ambiguous` with the candidate paths when a bare name exists in
   several folders. `sourceFile` in the result is the path that matched.
+  An absolute path that goes through a symlinked folder (e.g. macOS
+  `/var` → `/private/var`) is resolved before giving up, since coverlet
+  records the resolved path.
 
 - `GetSourceFiles` on a `.csproj` scanned the whole folder, so a test project
   nested under it (a common layout) contributed its test files as targets. A

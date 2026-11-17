@@ -144,11 +144,7 @@ public class CoberturaService : ICoberturaService
     {
         var model = Load(coberturaXmlPath);
         var sourceRoots = model.SourceRoots;
-        var requested = NormalizePath(sourceFileName);
-
-        var candidates = model.Classes
-            .Where(c => PathMatches(NormalizePath(c.File), requested, sourceRoots))
-            .ToList();
+        var candidates = ClassesFor(model, sourceFileName, out var requested);
 
         if (candidates.Count == 0)
             throw new KeyNotFoundException($"No classes found for source file '{sourceFileName}' in coverage report.");
@@ -196,6 +192,50 @@ public class CoberturaService : ICoberturaService
     // "Services/CoberturaService.cs" the way a plain EndsWith did.
     private static bool EndsWithSegments(string path, string tail) =>
         path.EndsWith("/" + tail, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The path with every symlinked folder on it resolved. Coverlet records the path the
+    /// compiler saw, which is the resolved one: on macOS the temp folder /var/... is really
+    /// /private/var/..., and a repo can sit under a symlink anywhere. Returns the input when
+    /// nothing on the path is a link or it can't be resolved.
+    /// </summary>
+    internal static string ResolveSymlinks(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var root = Path.GetPathRoot(full) ?? "";
+            var current = root;
+            foreach (var part in full[root.Length..].Split(
+                         [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+            {
+                current = Path.Combine(current, part);
+                FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
+                if (info.LinkTarget != null && info.ResolveLinkTarget(returnFinalTarget: true) is { } target)
+                    current = target.FullName;
+            }
+            return current;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return path;
+        }
+    }
+
+    // Report classes for a requested path; for an absolute path that matches nothing as
+    // given, retries with symlinks resolved (see ResolveSymlinks).
+    private static List<ClassCov> ClassesFor(CoverageModel model, string sourcePath, out string requested)
+    {
+        requested = NormalizePath(sourcePath);
+        var req = requested;
+        var classes = model.Classes.Where(c => PathMatches(NormalizePath(c.File), req, model.SourceRoots)).ToList();
+        if (classes.Count > 0 || !IsAbsolute(requested)) return classes;
+
+        var resolved = NormalizePath(ResolveSymlinks(sourcePath));
+        if (resolved == requested) return classes;
+        requested = resolved;
+        return model.Classes.Where(c => PathMatches(NormalizePath(c.File), resolved, model.SourceRoots)).ToList();
+    }
 
     private static bool IsExactMatch(string file, string requested, IReadOnlyList<string> sourceRoots) =>
         SamePath(file, requested)
@@ -266,8 +306,7 @@ public class CoberturaService : ICoberturaService
 
         foreach (var sourcePath in sourceFiles)
         {
-            var requested = NormalizePath(sourcePath);
-            var classes = model.Classes.Where(c => PathMatches(NormalizePath(c.File), requested, model.SourceRoots)).ToList();
+            var classes = ClassesFor(model, sourcePath, out _);
             if (classes.Count == 0)
             {
                 notInReport.Add(sourcePath);

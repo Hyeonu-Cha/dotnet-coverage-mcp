@@ -110,7 +110,8 @@ public class DotnetTestEndToEndTests : IClassFixture<SampleProjectFixture>
         root.TryGetProperty("errorType", out _).Should().BeFalse(because: root.ToString());
 
         root.GetProperty("filesInScope").GetInt32().Should().Be(1);
-        var file = root.GetProperty("remaining").EnumerateArray().Single();
+        root.GetProperty("remaining").GetArrayLength().Should().Be(1, because: root.ToString());
+        var file = root.GetProperty("remaining")[0];
         file.GetProperty("file").GetString().Should().EndWith("Calculator.cs");
         file.GetProperty("linesToCover").GetInt32().Should().Be(0);
         file.GetProperty("branchesToCover").GetInt32().Should().BeGreaterThan(0);
