@@ -7,15 +7,27 @@ namespace DotNetCoverageMcp.Tests.Integration;
 /// class. Building in a copy keeps bin/obj out of the repo and gives each test class its own
 /// build outputs: two `dotnet test` runs on the same project at once collide on obj/.
 /// </summary>
-public sealed class SampleProjectFixture : IDisposable
+public class SampleProjectFixture : IDisposable
 {
     public string Root { get; }
     public string TestProjectPath => Path.Combine(Root, "SampleLib.Tests", "SampleLib.Tests.csproj");
 
-    public SampleProjectFixture()
+    public SampleProjectFixture() : this(mtp: false) { }
+
+    /// <param name="mtp">
+    /// Switch the copy to Microsoft.Testing.Platform: the test project from Fixtures/Mtp and a
+    /// global.json at the copy's root that puts `dotnet test` in MTP mode.
+    /// </param>
+    protected SampleProjectFixture(bool mtp)
     {
         Root = Path.Combine(Path.GetTempPath(), $"coverage-mcp-e2e-{Guid.NewGuid():N}");
         CopyDirectory(Path.Combine(AppContext.BaseDirectory, "Fixtures", "SampleProject"), Root);
+        if (mtp)
+        {
+            var mtpDir = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Mtp");
+            File.Copy(Path.Combine(mtpDir, "SampleLib.Tests.csproj"), TestProjectPath, overwrite: true);
+            File.Copy(Path.Combine(mtpDir, "global.json"), Path.Combine(Root, "global.json"));
+        }
         RunDotnet("restore", TestProjectPath);
     }
 

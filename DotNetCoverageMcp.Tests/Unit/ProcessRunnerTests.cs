@@ -121,6 +121,82 @@ public class ProcessRunnerTests
         ProcessRunner.Classify(exitCode, summary).Should().Be(expected);
     }
 
+    // --- Microsoft.Testing.Platform mode (shapes checked against real runs: xUnit v3 and MSTest
+    // on MTP 2.5, Microsoft.Testing.Extensions.CodeCoverage 18.12) ---
+
+    [Fact]
+    public void BuildMtpTestArguments_UsesProjectOptionAndMicrosoftCoverage()
+    {
+        var args = ProcessRunner.BuildMtpTestArguments("p.csproj", "OrderTests", "/r", forceRestore: false, reportTrx: true);
+
+        args.Should().Equal("test", "--project", "p.csproj", "--no-restore", "--results-directory", "/r",
+            "--filter", "OrderTests", "--", "--coverage", "--coverage-output-format", "cobertura", "--report-trx");
+    }
+
+    [Fact]
+    public void BuildMtpTestArguments_WithoutTrxExtension_OmitsReportTrx_AndHasNoVstestOptions()
+    {
+        // MTP exits with 5 on an option whose extension the project doesn't reference.
+        var args = ProcessRunner.BuildMtpTestArguments("p.csproj", null, "/r", forceRestore: true, reportTrx: false);
+
+        args.Should().NotContain(["--report-trx", "--no-restore", "--filter", "--logger", "--blame-hang-timeout"]);
+        args.Should().NotContain(a => a.StartsWith("--collect", StringComparison.Ordinal));
+    }
+
+    public static TheoryData<int, TestSummary?, TestRunOutcome> MtpClassifyCases => new()
+    {
+        { 5, null, TestRunOutcome.MissingExtension },
+        { 8, null, TestRunOutcome.NoTestsMatched },
+        { 8, Summary(0, 0, 0), TestRunOutcome.NoTestsMatched },
+        { 2, null, TestRunOutcome.TestsFailed },
+        { 2, Summary(2, 1, 1), TestRunOutcome.TestsFailed },
+        { 0, Summary(3, 3, 0), TestRunOutcome.Success },
+        { 0, null, TestRunOutcome.Success },
+        { 1, null, TestRunOutcome.BuildError },
+    };
+
+    [Theory]
+    [MemberData(nameof(MtpClassifyCases))]
+    public void ClassifyMtp_MapsMtpExitCodes(int exitCode, TestSummary? summary, TestRunOutcome expected) =>
+        ProcessRunner.ClassifyMtp(exitCode, summary).Should().Be(expected);
+
+    [Fact]
+    public void ParseMtpSummary_ReadsTheConsoleSummaryBlock()
+    {
+        // Verbatim shape of MTP's console output for a run with one failing test.
+        const string output = """
+            Test run summary: Failed!
+              total: 2
+              failed: 1
+              succeeded: 1
+              skipped: 0
+              duration: 2s 169ms
+            Test run completed with non-success exit code: 2. At least one test failed.
+            """;
+
+        ProcessRunner.ParseMtpSummary(output).Should().BeEquivalentTo(new TestSummary(2, 1, 1, 0, []));
+        ProcessRunner.ParseMtpSummary("Build FAILED.").Should().BeNull();
+    }
+
+    [Fact]
+    public void FindCoverageXml_PrefersTheShallowestReport()
+    {
+        // Microsoft's extension writes <guid>.cobertura.xml at the top and a copy under In/;
+        // coverlet writes <guid>/coverage.cobertura.xml.
+        var dir = Path.Combine(Path.GetTempPath(), $"fcx-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(dir, "run", "In", "host"));
+        File.WriteAllText(Path.Combine(dir, "run", "In", "host", "a.cobertura.xml"), "");
+        File.WriteAllText(Path.Combine(dir, "a.cobertura.xml"), "");
+        try
+        {
+            ProcessRunner.FindCoverageXml(dir).Should().Be(Path.Combine(dir, "a.cobertura.xml"));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Fact]
     public void BuildTestArguments_ForceRestore_OmitsNoRestore()
     {

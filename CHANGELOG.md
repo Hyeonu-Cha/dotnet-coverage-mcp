@@ -92,6 +92,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method no longer shows it as removed and re-added.
 
 ### Added
+- Microsoft.Testing.Platform support in `RunTestsWithCoverage`. When the
+  repository's `global.json` selects MTP (on the .NET 10 SDK and later, MTP
+  projects cannot run in `dotnet test`'s default VSTest mode at all), the run
+  uses `dotnet test --project ... -- --coverage --coverage-output-format
+  cobertura`, adds `--report-trx` only when the TrxReport extension is
+  referenced (MTP rejects options of missing extensions with exit code 5), and
+  classifies the run by MTP's exit codes (2 failed, 8 zero tests, 5 missing
+  extension → new `missingExtension` error naming the package), falling back
+  to the console summary for counts when there is no TRX. Microsoft's Cobertura
+  dialect (`<guid>.cobertura.xml`, absolute paths, generated types nested with
+  `.`) is handled by every coverage tool. `includeClass` is rejected under MTP
+  because it is a coverlet setting. Verified end to end on xUnit v3 + MTP in CI.
 - `GetTestEnvironment`: detects a test project's framework (xUnit v2/v3, NUnit,
   MSTest) and the attributes to use for tests, data-driven cases, setup and
   teardown; the runner (VSTest, or Microsoft.Testing.Platform via MSTest.Sdk,

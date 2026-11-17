@@ -44,7 +44,7 @@ public class CoverageTools
     // --- 1. RunTestsWithCoverage ---
 
     [McpServerTool]
-    [Description("Run `dotnet test` with XPlat Code Coverage and generate a JSON summary. Returns paths to Summary.json and Cobertura XML.")]
+    [Description("Run `dotnet test` with code coverage and generate a JSON summary. Returns pass/fail/skip counts and paths to Summary.json and the Cobertura XML. Uses coverlet (XPlat Code Coverage) on VSTest, or Microsoft's CodeCoverage extension when the repository's global.json selects Microsoft.Testing.Platform.")]
     public async Task<string> RunTestsWithCoverage(
         [Description("Absolute path to the .csproj test project. Must be inside COVERAGE_MCP_ALLOWED_ROOT when that environment variable is set.")]
         string testProjectPath,
@@ -56,7 +56,7 @@ public class CoverageTools
         bool forceRestore = false,
         [Description("Optional opaque token (any string) used to isolate output artifacts (TestResults-{hash}/, coveragereport-{hash}/) so concurrent agents don't trample each other. Omit for single-agent use.")]
         string? sessionId = null,
-        [Description("Optional class-name pattern that restricts coverage collection to types matching this name (coverlet Include filter, e.g. 'OrderService' or 'Order*'), applied via a generated runsettings file. Independent of `filter`; omit to collect coverage for everything the run touches. Namespace-qualified names are not supported.")]
+        [Description("Optional class-name pattern, VSTest/coverlet only, that restricts coverage collection to types matching this name (coverlet Include filter, e.g. 'OrderService' or 'Order*'), applied via a generated runsettings file. Independent of `filter`; omit to collect coverage for everything the run touches. Namespace-qualified names are not supported.")]
         string? includeClass = null,
         [Description("When true, skips the reportgenerator JSON summary step and returns only the Cobertura XML path. Faster for the inner test loop, where per-file tools (GetFileCoverage/GetUncoveredBranches/GetCoverageDiff) read the XML directly. Leave false when you need GetCoverageSummary's Summary.json.")]
         bool skipReport = false,
@@ -76,6 +76,13 @@ public class CoverageTools
         }
 
         workingDir ??= Path.GetDirectoryName(testProjectPath) ?? Directory.GetCurrentDirectory();
+
+        // includeClass is a coverlet runsettings filter; Microsoft's extension used under MTP
+        // has a different settings format, so refuse rather than silently ignore it.
+        if (!string.IsNullOrWhiteSpace(includeClass) && TestEnvironmentDetector.DotnetTestUsesMtp(workingDir))
+            return JsonHelper.Error("invalidParameter",
+                "includeClass applies to coverlet on VSTest only; this repository runs dotnet test on Microsoft.Testing.Platform (global.json). Omit includeClass.");
+
         var suffix = _sessionManager.ComputeSuffix(sessionId);
         var resultsDir = Path.Combine(workingDir, $"TestResults{suffix}");
         var reportDir = Path.Combine(workingDir, $"coveragereport{suffix}");
@@ -99,6 +106,10 @@ public class CoverageTools
                 return JsonHelper.Error("noTestsMatched", ProcessRunner.RunsAllTests(filter)
                     ? "The test project contains no tests."
                     : $"No tests matched filter '{filter}'. A plain name matches any test whose fully qualified name contains it; omit filter to run every test.");
+            case TestRunOutcome.MissingExtension:
+                // Microsoft.Testing.Platform rejects an option whose extension the test project
+                // doesn't reference, and its message names the package to add.
+                return JsonHelper.Error("missingExtension", MissingExtensionDetail(testResult.Output, testResult.Error));
         }
 
         // The filter keys a state file; "run all" gets one stable key however it was spelled.
@@ -121,6 +132,10 @@ public class CoverageTools
                 failed = s?.Failed,
                 skipped = s?.Skipped,
                 failures = s?.Failures,
+                // MTP without the TrxReport extension reports counts but no per-test details.
+                hint = s is { Failed: > 0, Failures.Count: 0 }
+                    ? "Add the Microsoft.Testing.Extensions.TrxReport package to the test project to get each failure's message and stack."
+                    : null,
                 coberturaXmlPath = testResult.CoverageXmlPath
             });
         }
@@ -731,6 +746,19 @@ public class CoverageTools
     // --- Private helpers ---
 
     private const int MaxBuildErrors = 20;
+
+    internal static string MissingExtensionDetail(string output, string error)
+    {
+        var lines = $"{output}\n{error}".Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Contains("Unknown option", StringComparison.OrdinalIgnoreCase)
+                        || l.Contains("is provided by", StringComparison.OrdinalIgnoreCase))
+            .Distinct()
+            .ToList();
+        return lines.Count > 0
+            ? string.Join("\n", lines)
+            : $"The test application rejected an option (exit code 5).\nOutput (tail): {Tail(output)}";
+    }
 
     // MSBuild prints each compiler error twice (inline and in the summary), each with the
     // project path appended. Return each error once, without the suffix; fall back to the

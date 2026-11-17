@@ -6,7 +6,7 @@ namespace DotNetCoverageMcp.Services;
 
 // Outcome of a test run, reported as a typed enum so consumers branch on a stable
 // signal instead of string-matching the Error text (which used to carry sentinels).
-public enum TestRunOutcome { Success, TestsFailed, NoTestsMatched, BuildError, Cancelled, Timeout }
+public enum TestRunOutcome { Success, TestsFailed, NoTestsMatched, BuildError, MissingExtension, Cancelled, Timeout }
 
 public record TestRunResult(
     TestRunOutcome Outcome, string Output, string Error, int ExitCode, string? CoverageXmlPath,
@@ -59,13 +59,18 @@ public class ProcessRunner : IProcessRunner
         // earlier version emitted /p:Include, which the collector silently ignored), so we
         // materialize a temporary runsettings file and pass it with --settings.
         string? runSettingsPath = null;
+        // global.json, looked up from where dotnet test starts, decides the command line.
+        var mtp = TestEnvironmentDetector.DotnetTestUsesMtp(workingDir);
         try
         {
-            if (!string.IsNullOrWhiteSpace(includeClass))
+            if (!mtp && !string.IsNullOrWhiteSpace(includeClass))
                 runSettingsPath = WriteIncludeRunSettings(includeClass);
 
+            var args = mtp
+                ? BuildMtpTestArguments(testProjectPath, filter, resultsDir, forceRestore, HasTrxExtension(testProjectPath))
+                : BuildTestArguments(testProjectPath, filter, resultsDir, forceRestore, runSettingsPath);
             // ArgumentList instead of string concatenation to prevent injection.
-            foreach (var arg in BuildTestArguments(testProjectPath, filter, resultsDir, forceRestore, runSettingsPath))
+            foreach (var arg in args)
                 psi.ArgumentList.Add(arg);
 
             _logger.LogInformation("Starting dotnet test for {Project} with filter {Filter}", testProjectPath, filter);
@@ -120,13 +125,14 @@ public class ProcessRunner : IProcessRunner
             TestSummary? summary = null;
             if (Directory.Exists(resultsDir))
             {
-                coverageXmlPath = Directory.GetFiles(resultsDir, "coverage.cobertura.xml", SearchOption.AllDirectories)
-                    .FirstOrDefault();
+                coverageXmlPath = FindCoverageXml(resultsDir);
                 summary = TrxReader.Read(Directory.GetFiles(resultsDir, "*.trx", SearchOption.AllDirectories));
             }
+            // Without the TrxReport extension, MTP's console summary still gives the counts.
+            if (mtp) summary ??= ParseMtpSummary(output);
 
-            return new TestRunResult(
-                Classify(process.ExitCode, summary), output, error, process.ExitCode, coverageXmlPath, summary);
+            var runOutcome = mtp ? ClassifyMtp(process.ExitCode, summary) : Classify(process.ExitCode, summary);
+            return new TestRunResult(runOutcome, output, error, process.ExitCode, coverageXmlPath, summary);
         }
         finally
         {
@@ -170,6 +176,80 @@ public class ProcessRunner : IProcessRunner
             args.Add(runSettingsPath);
         }
         return args;
+    }
+
+    /// <summary>
+    /// Command line for `dotnet test` in Microsoft.Testing.Platform mode (.NET 10 SDK+, chosen by
+    /// global.json). The project is passed with --project; coverage comes from Microsoft's
+    /// CodeCoverage extension. Extension options after `--` go to the test application, which
+    /// rejects an option whose extension it does not reference (exit code 5), so --report-trx
+    /// is only added when the TrxReport extension is there. --coverage is always added: the
+    /// tool has nothing to report without it, and exit 5 names the package to add.
+    /// </summary>
+    internal static List<string> BuildMtpTestArguments(
+        string testProjectPath, string? filter, string resultsDir, bool forceRestore, bool reportTrx)
+    {
+        var args = new List<string> { "test", "--project", testProjectPath };
+        if (!forceRestore) args.Add("--no-restore");
+        args.Add("--results-directory");
+        args.Add(resultsDir);
+        // MSTest, NUnit and xUnit v3 all accept the VSTest filter syntax under MTP.
+        if (!RunsAllTests(filter))
+        {
+            args.Add("--filter");
+            args.Add(filter!.Trim());
+        }
+        args.AddRange(["--", "--coverage", "--coverage-output-format", "cobertura"]);
+        if (reportTrx) args.Add("--report-trx");
+        return args;
+    }
+
+    // MTP exit codes: 0 success, 2 failed tests, 5 unknown option (extension not referenced),
+    // 8 zero tests ran. 1 comes from MSBuild when the build fails.
+    internal static TestRunOutcome ClassifyMtp(int exitCode, TestSummary? summary) => exitCode switch
+    {
+        5 => TestRunOutcome.MissingExtension,
+        8 => TestRunOutcome.NoTestsMatched,
+        _ when summary != null => Classify(exitCode, summary),
+        0 => TestRunOutcome.Success,
+        2 => TestRunOutcome.TestsFailed,
+        _ => TestRunOutcome.BuildError
+    };
+
+    private static readonly System.Text.RegularExpressions.Regex MtpCountRx =
+        new(@"^\s*(total|failed|succeeded|skipped):\s*(\d+)\s*$",
+            System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>Counts from MTP's "Test run summary" block; null when no test ran.</summary>
+    internal static TestSummary? ParseMtpSummary(string output)
+    {
+        var counts = MtpCountRx.Matches(output)
+            .GroupBy(m => m.Groups[1].Value)
+            .ToDictionary(g => g.Key, g => int.Parse(g.Last().Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture));
+        if (!counts.TryGetValue("total", out var total)) return null;
+        return new TestSummary(total, counts.GetValueOrDefault("succeeded"), counts.GetValueOrDefault("failed"),
+            counts.GetValueOrDefault("skipped"), []);
+    }
+
+    // coverlet writes <guid>/coverage.cobertura.xml; Microsoft's extension writes
+    // <guid>.cobertura.xml at the top and a copy deeper down. Take the shallowest.
+    internal static string? FindCoverageXml(string resultsDir) =>
+        Directory.GetFiles(resultsDir, "*.cobertura.xml", SearchOption.AllDirectories)
+            .OrderBy(p => p.Count(c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar))
+            .ThenBy(p => p, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+    private static bool HasTrxExtension(string testProjectPath)
+    {
+        try
+        {
+            return TestEnvironmentDetector.Detect(testProjectPath).MtpExtensions
+                .Contains("Microsoft.Testing.Extensions.TrxReport", StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return false;
+        }
     }
 
     // No TRX means the run never reached test execution, i.e. the build failed. With TRX,

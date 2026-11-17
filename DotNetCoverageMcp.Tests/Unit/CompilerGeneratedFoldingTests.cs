@@ -185,6 +185,47 @@ public class CompilerGeneratedFoldingTests : IDisposable
     }
 
     [Fact]
+    public void MicrosoftCollectorDialect_IsFoldedToo()
+    {
+        // Microsoft.Testing.Extensions.CodeCoverage nests generated types with '.', not '/',
+        // and writes absolute file names with no <sources>.
+        var path = Path.Combine(_dir, "ms.xml");
+        File.WriteAllText(path, $"""
+            <coverage line-rate="1" branch-rate="0.5"><packages><package name="SampleLib"><classes>
+              <class name="SampleLib.Calculator" filename="C:\src\SampleLib\Calculator.cs" line-rate="1" branch-rate="1"><methods>
+                {Method("Add", Line(5, 1), "(int, int)")}
+              </methods></class>
+              <class name="SampleLib.Calculator.&lt;AddAsync&gt;d__2" filename="C:\src\SampleLib\Calculator.cs" line-rate="1" branch-rate="0.5"><methods>
+                {Method("MoveNext", Line(19, 1) + Line(20, 1, "50% (1/2)", """<condition number="0" type="jump" coverage="50%" />"""), br: "0.5")}
+              </methods></class>
+              <class name="SampleLib.Calculator.&lt;&gt;c" filename="C:\src\SampleLib\Calculator.cs" line-rate="1" branch-rate="1"><methods>
+                {Method("<CountPositive>b__5_0", Line(37, 1), "(int)")}
+              </methods></class>
+            </classes></package></packages></coverage>
+            """);
+
+        var file = _sut.GetFileCoverage(path, @"C:\src\SampleLib\Calculator.cs", 0.8);
+
+        file.Classes.Should().ContainSingle().Which.Class.Should().Be("SampleLib.Calculator");
+        file.Classes[0].Methods.Select(m => m.Name).Should().BeEquivalentTo("Add", "AddAsync", "CountPositive");
+        _sut.GetUncoveredBranches(path, "AddAsync").Methods.Single().UncoveredBranches.Single().Line.Should().Be(20);
+    }
+
+    [Theory]
+    [InlineData("Ns.Calc/<AddAsync>d__2", "Ns.Calc", new[] { "<AddAsync>d__2" })]                       // coverlet
+    [InlineData("Ns.Calc.<AddAsync>d__2", "Ns.Calc", new[] { "<AddAsync>d__2" })]                       // Microsoft
+    [InlineData("Ns.Calc.<>c__DisplayClass3_0.<<InsertAsync>b__0>d", "Ns.Calc", new[] { "<>c__DisplayClass3_0", "<<InsertAsync>b__0>d" })]
+    [InlineData("Ns.Calc/<>c__DisplayClass0_0/<<.ctor>b__0_0>d", "Ns.Calc", new[] { "<>c__DisplayClass0_0", "<<.ctor>b__0_0>d" })] // dot inside a name
+    [InlineData("Ns.Outer/Inner", "Ns.Outer/Inner", new string[0])]                                     // real nested class
+    public void SplitClassName_SeparatesGeneratedTypes(string name, string real, string[] generated)
+    {
+        var (r, g) = CoverageModel.SplitClassName(name);
+
+        r.Should().Be(real);
+        g.Should().Equal(generated);
+    }
+
+    [Fact]
     public void HalfCoveredIf_IsReportedAsUncovered()
     {
         // Regression: coverlet writes a one-sided `if` as one jump condition at 50%. Only 0%

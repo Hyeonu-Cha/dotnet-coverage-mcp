@@ -128,6 +128,28 @@ public class TestEnvironmentDetectorTests : IDisposable
     }
 
     [Fact]
+    public void MtpProjectWithoutGlobalJson_WarnsThatDotnetTestWillRejectIt()
+    {
+        var env = TestEnvironmentDetector.Detect(Csproj(
+            "<PropertyGroup><UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner></PropertyGroup>" +
+            Refs("xunit.v3", "Microsoft.Testing.Extensions.CodeCoverage")));
+
+        env.Runner.Should().Be(TestEnvironmentDetector.Mtp);
+        env.Warnings.Should().Contain(w => w.Contains("global.json"));
+    }
+
+    [Fact]
+    public void MtpWithCoverletOnly_WarnsThatMicrosoftsExtensionIsNeeded()
+    {
+        File.WriteAllText(Path.Combine(_repo, "global.json"), """{ "test": { "runner": "Microsoft.Testing.Platform" } }""");
+
+        var env = TestEnvironmentDetector.Detect(Csproj(Refs("xunit.v3", "coverlet.collector")));
+
+        env.Coverage.Should().BeNull("RunTestsWithCoverage drives Microsoft's extension on MTP, not coverlet");
+        env.Warnings.Should().Contain(w => w.Contains("Microsoft.Testing.Extensions.CodeCoverage"));
+    }
+
+    [Fact]
     public void GlobalJsonTestRunner_SwitchesRunner()
     {
         File.WriteAllText(Path.Combine(_repo, "global.json"),
