@@ -7,14 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-11-18
+
 ### Fixed
 - A build that failed only because its output files were in use was reported as
   `buildError`, so the agent went looking for a mistake in tests that were fine. This
   happens when another `dotnet test` or build of the same project, an IDE build or a
   still-running test host holds the files (`CS2012`, `CS0016`, `MSB3021`, `MSB3027`, or
-  "being used by another process"). `RunTestsWithCoverage` now returns `projectBusy` for it, with the
-  locking errors and a note to run again. A real compile error alongside still gives
-  `buildError`.
+  "being used by another process"). `RunTestsWithCoverage` now returns `projectBusy` for
+  it, with the locking errors and a note to run again. A real compile error alongside
+  still gives `buildError`.
 - `RunTestsWithCoverage` without a `sessionId` wrote to `<project>/TestResults` and deleted
   it at the start of every run. That is the folder plain `dotnet test` and Visual Studio
   write to by default, so results you produced yourself were wiped. Single-agent runs now
