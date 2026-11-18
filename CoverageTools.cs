@@ -519,7 +519,7 @@ public class CoverageTools
         if (!File.Exists(sourceFilePath) || !sourceFilePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
             return JsonHelper.Error("fileNotFound", $"Source file not found or not a .cs file: {sourceFilePath}");
 
-        var description = TestTargetDescriber.Describe(sourceFilePath);
+        var description = TestTargetDescriber.Describe(sourceFilePath, _pathGuard.IsWithinAllowedRoot);
         return description.Types.Count == 0
             ? JsonHelper.Error("noTestableTypes", "The file declares no class, record or struct with methods or constructor dependencies.")
             : JsonHelper.Serialize(description);
