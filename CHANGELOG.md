@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI
+- The release workflow now publishes to the MCP registry itself: a second job waits for
+  NuGet to index the new version, then logs in with the workflow's GitHub OIDC token and
+  publishes `server.json`. No device-code login is needed, and the registry's
+  few-minute token no longer expires while NuGet is still indexing. `mcp-publisher` is
+  pinned and its signature checked before it runs.
+
 ## [2.0.3] - 2026-11-19
 
 ### Fixed
