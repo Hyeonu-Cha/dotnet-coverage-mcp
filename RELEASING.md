@@ -21,12 +21,14 @@ Renaming the workflow file or the repository, or adding an `environment:` to the
 
 ## Cutting a release
 
+1. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and add a new empty `## [Unreleased]` above it.
+2. Set `version` in `server.json` (top-level and `packages[0]`) to `X.Y.Z`.
+3. Merge both as a `Release X.Y.Z` pull request, then tag the merge commit:
+
 ```bash
-# Update "version" in server.json (both the top-level and packages[0])
-# to match the tag you are about to push, then:
-git commit -am "Release vX.Y.Z"
+git checkout main && git pull
 git tag vX.Y.Z
-git push origin main --tags
+git push origin vX.Y.Z
 ```
 
 The package version is injected from the git tag via `-p:Version=` in the release workflow, so there is no `<Version>` element to edit in the csproj.
@@ -48,6 +50,8 @@ mcp-publisher login github     # opens device-code OAuth in your browser
 mcp-publisher validate         # sanity-checks server.json against the schema
 mcp-publisher publish          # submits the local server.json
 ```
+
+The login token is short-lived, so expect to log in again for each release: `publish` fails with `401` and "token is expired" otherwise.
 
 The registry verifies NuGet package ownership by scanning the published package's README for the literal marker `mcp-name: <namespace>/<server>` (already present in this repo's README near the top). If you fork or rename, update that marker to match your `server.json` `name` field, otherwise the publish will fail with a 400.
 

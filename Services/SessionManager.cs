@@ -155,7 +155,8 @@ public class SessionManager : ISessionManager
             // Only this session's own artifacts. The unsuffixed TestResults/coveragereport dirs
             // belong to a single-agent run or to another tool (dotnet test / Visual Studio write
             // TestResults by default) — deleting them here would wipe data this session doesn't
-            // own. The age-based sweep (no sessionId) is the path that cleans unsuffixed dirs.
+            // own. Nothing in Cleanup touches the bare names; the sweep below only takes
+            // hyphen-suffixed ones such as TestResults-mcp.
             _fileService.SafeDelete(Path.Combine(workingDir, $"TestResults-{key}"));
             _fileService.SafeDelete(Path.Combine(workingDir, $"coveragereport-{key}"));
         }
