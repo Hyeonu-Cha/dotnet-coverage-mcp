@@ -185,6 +185,43 @@ public class TestTargetDescriberTests : IDisposable
     }
 
     [Fact]
+    public void ExistingTestFiles_AreNotSearchedForAboveTheAllowedRoot()
+    {
+        // Regression: the search started at the .git folder even when that was above
+        // COVERAGE_MCP_ALLOWED_ROOT, listing files the client was not allowed to read.
+        var allowedRoot = Path.Combine(_repo, "src");
+        var insideTest = Path.Combine(allowedRoot, "App.Tests", "OrderServiceTests.cs");
+        Directory.CreateDirectory(Path.GetDirectoryName(insideTest)!);
+        File.WriteAllText(insideTest, "public class OrderServiceTests { }");
+
+        var description = TestTargetDescriber.Describe(Write("OrderService.cs", OrderService),
+            p => Path.GetFullPath(p).StartsWith(allowedRoot, StringComparison.OrdinalIgnoreCase));
+
+        // The one under tests/ is outside src/; the allowed root itself is searched.
+        description.ExistingTestFiles.Should().Equal(insideTest);
+    }
+
+    [Fact]
+    public void ExistingTestFiles_SkipAnUnreadableFolder_InsteadOfFindingNothing()
+    {
+        if (OperatingSystem.IsWindows()) return; // denying a folder needs ACLs there
+        var locked = Path.Combine(_repo, "locked");
+        Directory.CreateDirectory(locked);
+        File.SetUnixFileMode(locked, UnixFileMode.None);
+        try
+        {
+            var description = TestTargetDescriber.Describe(Write("OrderService.cs", OrderService));
+
+            description.ExistingTestFiles.Should().ContainSingle()
+                .Which.Should().EndWith(Path.Combine("tests", "App.Tests", "OrderServiceTests.cs"));
+        }
+        finally
+        {
+            File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
     public void Tool_ReturnsNoTestableTypes_ForAFileOfRecords()
     {
         var path = Write("Records.cs", "namespace App; public record A(int X); public record B(string Y);");

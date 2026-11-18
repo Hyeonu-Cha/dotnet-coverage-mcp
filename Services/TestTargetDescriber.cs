@@ -86,7 +86,9 @@ public static class TestTargetDescriber
         ["Random"] = "inject a Random with a fixed seed",
     };
 
-    public static TestTargetDescription Describe(string sourceFilePath)
+    /// <param name="isAllowed">Whether a folder may be searched for existing test files; the
+    /// tool passes the allowed-root check so the search never reaches above it.</param>
+    public static TestTargetDescription Describe(string sourceFilePath, Func<string, bool>? isAllowed = null)
     {
         var text = File.ReadAllText(sourceFilePath);
         var root = CSharpSyntaxTree.ParseText(text).GetCompilationUnitRoot();
@@ -101,7 +103,7 @@ public static class TestTargetDescriber
             .ToList();
 
         var names = types.Select(t => SimpleName(t.Name)).Append(Path.GetFileNameWithoutExtension(sourceFilePath)).Distinct().ToList();
-        return new TestTargetDescription(sourceFilePath, types, FindTestFiles(sourceFilePath, names));
+        return new TestTargetDescription(sourceFilePath, types, FindTestFiles(sourceFilePath, names, isAllowed ?? (_ => true)));
     }
 
     private static TargetType DescribeType(TypeDeclarationSyntax type, ProjectDeclarations declarations)
@@ -281,13 +283,22 @@ public static class TestTargetDescriber
         return t[(t.LastIndexOf('.') + 1)..];
     }
 
-    private static List<string> FindTestFiles(string sourceFilePath, List<string> typeNames)
+    // Like the GetSourceFiles scan: links are not followed out of the tree, and an unreadable
+    // folder is skipped instead of ending the search with no results at all.
+    private static readonly EnumerationOptions SearchOptions = new()
     {
-        var repoRoot = RepoRoot(Path.GetDirectoryName(Path.GetFullPath(sourceFilePath))!);
+        RecurseSubdirectories = true,
+        AttributesToSkip = FileAttributes.ReparsePoint,
+        IgnoreInaccessible = true,
+    };
+
+    private static List<string> FindTestFiles(string sourceFilePath, List<string> typeNames, Func<string, bool> isAllowed)
+    {
         var names = typeNames.SelectMany(n => new[] { $"{n}Tests.cs", $"{n}Test.cs", $"{n}IntegrationTests.cs" }).ToList();
         try
         {
-            return Directory.EnumerateFiles(repoRoot, "*.cs", SearchOption.AllDirectories)
+            var repoRoot = RepoRoot(Path.GetDirectoryName(Path.GetFullPath(sourceFilePath))!, isAllowed);
+            return Directory.EnumerateFiles(repoRoot, "*.cs", SearchOptions)
                 .Where(f => names.Contains(Path.GetFileName(f), StringComparer.OrdinalIgnoreCase))
                 .Where(f => !IsBuildOutput(f))
                 .Take(MaxTestFiles)
@@ -297,13 +308,17 @@ public static class TestTargetDescriber
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return []; }
     }
 
-    // The nearest folder holding a solution or .git; else the source file's folder.
-    private static string RepoRoot(string start)
+    // The nearest folder holding a solution or .git, but never above the allowed root: the
+    // search would list files there the client may not read. With no marker below it, the
+    // allowed root itself; with no allowed root and no marker, the source file's folder.
+    private static string RepoRoot(string start, Func<string, bool> isAllowed)
     {
         for (var dir = new DirectoryInfo(start); dir != null; dir = dir.Parent)
         {
             if (Directory.Exists(Path.Combine(dir.FullName, ".git"))
                 || dir.EnumerateFiles("*.sln").Any() || dir.EnumerateFiles("*.slnx").Any())
+                return dir.FullName;
+            if (dir.Parent != null && !isAllowed(dir.Parent.FullName))
                 return dir.FullName;
         }
         return start;
