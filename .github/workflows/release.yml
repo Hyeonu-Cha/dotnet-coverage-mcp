@@ -21,14 +21,21 @@ permissions:
   contents: write
   id-token: write # OIDC token for NuGet Trusted Publishing and the MCP registry
 
+# Actions are pinned to a commit SHA, as in dotnet.yml: this workflow can push to NuGet and
+# the registry, so a moved tag here would publish someone else's code under this name.
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history so the "tag is on main" check below can see origin/main.
           fetch-depth: 0
+          # This job's token can write to the repo; nothing after checkout uses git, so
+          # keep it out of .git/config, away from restore, build and test.
+          persist-credentials: false
 
       - name: Extract version from tag
         id: version
@@ -45,7 +52,7 @@ jobs:
         run: jq -e --arg v "$VERSION" '.version == $v and .packages[0].version == $v' server.json
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
 
@@ -70,7 +77,7 @@ jobs:
       # Right before the push: the key it returns expires after about an hour.
       - name: NuGet login (Trusted Publishing)
         id: nuget-login
-        uses: NuGet/login@v1
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         with:
           user: ericcha901 # nuget.org account that owns the package
 
@@ -87,6 +94,8 @@ jobs:
   mcp-registry:
     needs: release
     runs-on: ubuntu-latest
+    # Up to 60 minutes waiting for NuGet, then a minute of work.
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write # `mcp-publisher login github-oidc`
@@ -94,7 +103,9 @@ jobs:
       # Pinned and signature-checked, as the registry's guide recommends. Bump on purpose.
       MCP_PUBLISHER_VERSION: v1.8.9
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # The registry checks the package on NuGet, so it must be listed there first.
       # NuGet's validation and indexing usually take 5-20 minutes.

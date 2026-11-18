@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   publishes `server.json`. No device-code login is needed, and the registry's
   few-minute token no longer expires while NuGet is still indexing. `mcp-publisher` is
   pinned and its signature checked before it runs.
+- Workflow hardening: every action is pinned to a commit SHA, checkouts no longer leave
+  the job token in `.git/config` (`persist-credentials: false`), and every job has a
+  `timeout-minutes` instead of GitHub's 6-hour default. A failed build uploads the test
+  results (TRX) for that OS.
+- A repository `nuget.config` restores from nuget.org only, so a machine-wide feed (a
+  company one, say) is no longer queried for this repository's packages, nor able to
+  supply one with the same name. The end-to-end fixtures, restored from a temp copy, get
+  the same file.
 
 ## [2.0.3] - 2026-11-19
 
