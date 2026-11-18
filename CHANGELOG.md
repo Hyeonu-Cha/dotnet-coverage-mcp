@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-11-19
+
 ### Fixed
 - `CleanupSession` without a `sessionId` removed only artifacts older than
   `maxAgeMinutes` (120 by default), so the cleanup an agent runs when it finishes a
