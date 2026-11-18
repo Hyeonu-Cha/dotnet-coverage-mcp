@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `.coverage-prev.xml` behind. Those are now removed whatever their age; other
   sessions' artifacts still go only once older than `maxAgeMinutes`. The
   `improve-test-coverage` skill now ends with the cleanup step.
+- `DescribeTestTarget` looked for existing test files from the nearest `.git` or
+  solution folder even when that was above `COVERAGE_MCP_ALLOWED_ROOT`, listing files
+  outside it, and followed symlinks out of the tree. One unreadable folder anywhere in
+  that tree ended the search with no results, so the agent could create a duplicate test
+  file. The search now stops at the allowed root, does not follow links, and skips
+  folders it cannot read.
 
 ## [2.0.2] - 2026-11-18
 
