@@ -13,6 +13,9 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Actions are pinned to a commit SHA (a tag can be moved to other code; a commit can't).
+# Dependabot updates the SHA and the version comment together.
+
 jobs:
   build:
     strategy:
@@ -20,11 +23,18 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # A normal run takes 2-3 minutes; a hung dotnet test would otherwise hold the runner
+    # for GitHub's 6-hour default.
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here uses git after checkout, so don't leave the token in .git/config
+          # where every later step (and any MSBuild code from a package) could read it.
+          persist-credentials: false
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
 
@@ -35,7 +45,7 @@ jobs:
         run: dotnet build --no-restore --configuration Release
 
       - name: Test
-        run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage" --results-directory ./TestResults
+        run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage" --results-directory ./TestResults --logger trx
 
       - name: Coverage summary
         if: matrix.os == 'ubuntu-latest'
@@ -45,6 +55,17 @@ jobs:
           line=$(grep -o 'line-rate="[0-9.]*"' "$xml" | head -1 | grep -o '[0-9.]*')
           branch=$(grep -o 'branch-rate="[0-9.]*"' "$xml" | head -1 | grep -o '[0-9.]*')
           awk -v l="$line" -v b="$branch" 'BEGIN { printf "### Coverage\n\n| Line | Branch |\n|---|---|\n| %.1f%% | %.1f%% |\n", l*100, b*100 }' >> "$GITHUB_STEP_SUMMARY"
+
+      # The TRX holds each failing test's message, stack and output, so a failure that
+      # shows on one OS only can be read without re-running the job.
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results-${{ matrix.os }}
+          path: TestResults/
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Pack, install, and start the real tool so packaging or startup breakage
       # shows up on the PR instead of after a release tag is pushed.

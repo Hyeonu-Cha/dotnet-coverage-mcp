@@ -30,6 +30,8 @@
     <Compile Remove="Fixtures\**" />
     <None Remove="Fixtures\**" />
     <None Include="Fixtures\**" Exclude="Fixtures\**\bin\**;Fixtures\**\obj\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The fixtures are restored from a temp copy, outside the repo's nuget.config. -->
+    <None Include="..\nuget.config" Link="Fixtures\SampleProject\nuget.config" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
