@@ -46,8 +46,15 @@ public class PathGuard : IPathGuard
         // the root that points outside it (root/link -> /etc) passes the lexical test while
         // reading or writing an arbitrary location.
         var normalized = NormalizeRoot(SymlinkResolver.Resolve(fullPath));
-        return normalized.StartsWith(_allowedRoot, StringComparison.OrdinalIgnoreCase);
+        return normalized.StartsWith(_allowedRoot, PathComparison);
     }
+
+    // Windows and macOS file systems ignore case by default, so "C:\Repo" is "C:\repo" there.
+    // On Linux they are different folders, and ignoring case let "/home/u/Repo" past a root of
+    // "/home/u/repo".
+    // ponytail: a case-sensitive APFS volume on macOS is still compared ignoring case.
+    private static readonly StringComparison PathComparison =
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     public void Validate(string path, string paramName)
     {
