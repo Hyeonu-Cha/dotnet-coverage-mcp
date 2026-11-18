@@ -82,7 +82,7 @@ Without `sessionId`, tools use shared defaults — safe for single-agent use.
 
 ## Requirements
 
-- **.NET 10 SDK (or later)** — [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
+- **.NET 10 (or later)** to run the tool — [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download). The projects it tests do not have to be .NET 10: `net8.0` and `net9.0` test projects work, including in a repository whose `global.json` pins an older SDK. As with any `dotnet test`, the runtime the tests target must be installed.
 - **A coverage collector in the test project.** On VSTest (the default), `coverlet.collector`. On Microsoft.Testing.Platform, `Microsoft.Testing.Extensions.CodeCoverage`, plus `Microsoft.Testing.Extensions.TrxReport` for per-failure details. MTP is used when the repository's `global.json` sets `"test": { "runner": "Microsoft.Testing.Platform" }`, which the .NET 10 SDK requires for MTP projects anyway. `GetTestEnvironment` reports what a project has and what is missing.
 - An MCP-compatible client (Claude Code, Gemini CLI, etc.)
 - **`COVERAGE_MCP_ALLOWED_ROOT`** — recommended. Set to your repository root to restrict every tool's filesystem access to that subtree. Any path passed by the client outside this root is rejected with `pathNotAllowed`. When unset, the server logs a warning once and accepts any path (backward-compatible, but not recommended for shared environments).
