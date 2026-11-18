@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
@@ -31,7 +32,7 @@ public class FileService : IFileService
         var tempPath = Path.Combine(dir, $".tmp-{Guid.NewGuid():N}");
         try
         {
-            File.WriteAllText(tempPath, content);
+            File.WriteAllText(tempPath, content, EncodingOf(targetPath));
             ReplaceWithRetry(tempPath, targetPath);
         }
         catch
@@ -39,6 +40,30 @@ public class FileService : IFileService
             try { File.Delete(tempPath); } catch { }
             throw;
         }
+    }
+
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+    /// <summary>
+    /// The encoding to rewrite a file in: whatever its byte-order mark says. Visual Studio saves
+    /// C# files as UTF-8 with a BOM, and dropping it makes the first line show as changed and
+    /// breaks an .editorconfig `charset = utf-8-bom`. No file, or no BOM: UTF-8 without one.
+    /// </summary>
+    internal static Encoding EncodingOf(string path)
+    {
+        Span<byte> head = stackalloc byte[3];
+        int read;
+        try
+        {
+            using var stream = File.OpenRead(path);
+            read = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return Utf8NoBom; }
+
+        if (read >= 3 && head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF) return new UTF8Encoding(true);
+        if (read >= 2 && head[0] == 0xFF && head[1] == 0xFE) return Encoding.Unicode;
+        if (read >= 2 && head[0] == 0xFE && head[1] == 0xFF) return Encoding.BigEndianUnicode;
+        return Utf8NoBom;
     }
 
     // Like AtomicWriteFile but copies an existing file instead of materializing its

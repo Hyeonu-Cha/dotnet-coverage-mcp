@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `TestResults-mcp`. The age-based `CleanupSession` sweep no longer deletes the bare
   `TestResults` or `coveragereport` folders either; it removes only the hyphen-suffixed
   folders the tool creates (`coveragereport-*` ones are left over from before 2.0.1).
+- `AppendTestCode` removed the UTF-8 byte-order mark from the files it edited, and
+  rewrote UTF-16 files as UTF-8: every write used UTF-8 without a BOM. Visual Studio saves
+  C# files with a BOM, so the first edit showed the first line as changed and broke an
+  `.editorconfig` `charset = utf-8-bom`. A rewritten file now keeps the encoding its BOM
+  indicates.
 
 ## [2.0.1] - 2026-11-18
 
