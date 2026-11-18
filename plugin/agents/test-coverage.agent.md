@@ -95,7 +95,7 @@ If not a .NET test context, explain your specialization and suggest general assi
 5. After each cycle, call `GetCoverageDiff` to verify improvement
 6. Files listed under `done` by `GetCoverageGaps` are finished; move to the next batch when `filesRemaining` is 0
 7. Stop batch after 3 cycles with no improvement; mark stuck methods as blocked
-8. **Clean up when done** — Once `GetCoverageGaps` reports `filesRemaining: 0` for the scope (or all remaining methods are marked blocked), call `CleanupSession` with the project `workingDir` (and the same `sessionId` you used for `RunTestsWithCoverage`, if any) to remove `TestResults-{hash}/` and session state files. Always run this as the final step — do not leave coverage artifacts behind on disk
+8. **Clean up when done** — Once `GetCoverageGaps` reports `filesRemaining: 0` for the scope (or all remaining methods are marked blocked), call `CleanupSession` with the project `workingDir` (and the same `sessionId` you used for `RunTestsWithCoverage`, if any) to remove `TestResults-mcp/` (or `TestResults-{hash}/`) and session state files. Always run this as the final step — do not leave coverage artifacts behind on disk
 
 ## Batching Rule (Critical)
 

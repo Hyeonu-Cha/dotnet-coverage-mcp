@@ -117,7 +117,10 @@ Call `GetCoverageGaps` again for the batch, and `GetCoverageDiff` to see method-
 ### Step 6: Repeat or advance
 - **If `filesRemaining` > 0** → return to Step 3 with the new gaps
 - **If all files in batch are done OR 3 cycles with no improvement** → move to next batch
-- **If all batches complete** → report final coverage summary, including how many files were excluded and why (by kind)
+- **If all batches complete** → report final coverage summary, including how many files were excluded and why (by kind), then go to Step 7
+
+### Step 7: Clean up
+Call `CleanupSession` with the project's `workingDir`, plus the same `sessionId` you passed to `RunTestsWithCoverage` if you used one. It removes the `TestResults-mcp/` (or `TestResults-{hash}/`) folder and the session state; nothing else deletes them.
 
 ## Termination Criteria
 
@@ -126,7 +129,7 @@ Call `GetCoverageGaps` again for the batch, and `GetCoverageDiff` to see method-
 | All files in batch at ≥ 80% line AND branch | Batch done — move to next batch |
 | No improvement for 3 consecutive cycles in a batch | Batch plateau — move to next batch |
 | Method fails 3 times with no gain | Mark as blocked, skip in future cycles |
-| All batches processed | Session complete — report final state |
+| All batches processed | Session complete — report final state, then `CleanupSession` |
 
 ## Performance Notes
 

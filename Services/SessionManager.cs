@@ -162,6 +162,10 @@ public class SessionManager : ISessionManager
         }
         else
         {
+            // The single-agent artifacts (TestResults-mcp, the unscoped state and baseline) belong
+            // to the caller that omits sessionId, so they go whatever their age: otherwise the
+            // cleanup an agent runs when it finishes left its own fresh run behind. Other sessions'
+            // artifacts still go only once they are older than maxAgeMinutes.
             var stateDir = Path.Combine(workingDir, ".mcp-coverage");
             if (Directory.Exists(stateDir))
             {
@@ -170,7 +174,8 @@ public class SessionManager : ISessionManager
                 {
                     try
                     {
-                        if (File.GetLastWriteTimeUtc(file) < cutoff)
+                        if (Path.GetFileName(file) is ".coverage-state" or ".coverage-prev.xml"
+                            || File.GetLastWriteTimeUtc(file) < cutoff)
                         {
                             File.Delete(file);
                             removed++;
@@ -197,7 +202,7 @@ public class SessionManager : ISessionManager
                     var isArtifactDir =
                         dirName.StartsWith("TestResults-", StringComparison.Ordinal)
                         || dirName.StartsWith("coveragereport-", StringComparison.Ordinal);
-                    if (isArtifactDir && Directory.GetLastWriteTimeUtc(dir) < cutoff)
+                    if (isArtifactDir && (dirName == "TestResults-mcp" || Directory.GetLastWriteTimeUtc(dir) < cutoff))
                     {
                         _fileService.SafeDelete(dir);
                         removed++;

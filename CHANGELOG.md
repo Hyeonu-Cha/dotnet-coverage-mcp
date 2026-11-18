@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `CleanupSession` without a `sessionId` removed only artifacts older than
+  `maxAgeMinutes` (120 by default), so the cleanup an agent runs when it finishes a
+  single-agent session left that session's `TestResults-mcp` folder, `.coverage-state`
+  and `.coverage-prev.xml` behind. Those are now removed whatever their age; other
+  sessions' artifacts still go only once older than `maxAgeMinutes`. The
+  `improve-test-coverage` skill now ends with the cleanup step.
+
 ## [2.0.2] - 2026-11-18
 
 ### Fixed
