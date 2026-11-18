@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   company one, say) is no longer queried for this repository's packages, nor able to
   supply one with the same name. The end-to-end fixtures, restored from a temp copy, get
   the same file.
+- Releases carry a CycloneDX SBOM next to the `.nupkg`, and the workflow attests the
+  package's build provenance and its SBOM before pushing it, so a download from the
+  GitHub Release can be checked with `gh attestation verify` (SECURITY.md has the
+  commands). Before publishing to the MCP registry, the workflow installs the version
+  from nuget.org and runs the smoke test on that copy.
 
 ## [2.0.3] - 2026-11-19
 
