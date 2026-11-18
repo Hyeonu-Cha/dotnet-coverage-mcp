@@ -1,0 +1,50 @@
+# TEMPORARY: proves the mcp-registry job's steps work before the next release needs them.
+# Same steps as release.yml, with `validate` instead of `publish`. Removed before merge.
+name: tmp-registry-check
+
+on: pull_request
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.9
+      GITHUB_REF_NAME_UNDER_TEST: v2.0.3
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Wait for NuGet to index the package
+        run: |
+          version="${GITHUB_REF_NAME_UNDER_TEST#v}"
+          for _ in $(seq 1 120); do
+            curl -fsS https://api.nuget.org/v3-flatcontainer/dotnet-coverage-mcp/index.json \
+              | jq -e --arg v "$version" '.versions | index($v)' > /dev/null && exit 0
+            sleep 30
+          done
+          echo "::error::NuGet had not indexed $version after 60 minutes. Re-run this job once it has."
+          exit 1
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download and verify mcp-publisher
+        run: |
+          archive=mcp-publisher_linux_amd64.tar.gz
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl -fsSL -o "$archive" "$base_url/$archive"
+          curl -fsSL -o "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+
+      - name: Log in with OIDC and validate (no publish)
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher validate
