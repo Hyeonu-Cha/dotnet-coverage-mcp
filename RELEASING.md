@@ -33,11 +33,13 @@ git push origin vX.Y.Z
 
 The package version is injected from the git tag via `-p:Version=` in the release workflow, so there is no `<Version>` element to edit in the csproj.
 
-The workflow builds, tests, packs, pushes the package to NuGet, and creates a GitHub Release with auto-generated notes.
+The workflow builds, tests, packs, pushes the package to NuGet, and creates a GitHub Release with auto-generated notes. Its second job, `mcp-registry`, then waits for NuGet to index the version (usually 5–20 minutes) and publishes `server.json` to the [official MCP registry](https://registry.modelcontextprotocol.io), logging in with the workflow's GitHub OIDC token. Nothing to do by hand.
 
-## Submitting to the MCP registry
+If that job fails (NuGet took over an hour, or the registry was down), use **Re-run failed jobs** on the run; it retries only the registry step.
 
-After NuGet has indexed the new version (5–15 minutes — verify by visiting `https://www.nuget.org/packages/dotnet-coverage-mcp/<version>`), publish to the [official MCP registry](https://registry.modelcontextprotocol.io) with the `mcp-publisher` CLI:
+## Submitting to the MCP registry by hand
+
+Only needed when the `mcp-registry` job can't be used. After NuGet has indexed the new version (verify at `https://www.nuget.org/packages/dotnet-coverage-mcp/<version>`), publish with the `mcp-publisher` CLI:
 
 ```bash
 # macOS
@@ -51,7 +53,7 @@ mcp-publisher validate         # sanity-checks server.json against the schema
 mcp-publisher publish          # submits the local server.json
 ```
 
-The login token is short-lived, so expect to log in again for each release: `publish` fails with `401` and "token is expired" otherwise.
+The login token lasts only a few minutes, so log in immediately before `publish`; otherwise it fails with `401` and "token is expired".
 
 The registry verifies NuGet package ownership by scanning the published package's README for the literal marker `mcp-name: <namespace>/<server>` (already present in this repo's README near the top). If you fork or rename, update that marker to match your `server.json` `name` field, otherwise the publish will fail with a 400.
 

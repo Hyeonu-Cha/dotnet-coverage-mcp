@@ -1,11 +1,13 @@
 name: release
 
 # Triggered when you push a tag like `v0.1.0`. Builds, tests, packs, and
-# publishes the NuGet package, then attaches the .nupkg to a GitHub Release.
+# publishes the NuGet package, attaches the .nupkg to a GitHub Release, then
+# publishes server.json to the MCP registry once NuGet has indexed the package.
 #
-# Publishing uses NuGet Trusted Publishing: no stored API key. A policy on
-# nuget.org (owner Hyeonu-Cha, repo dotnet-coverage-mcp, workflow release.yml)
-# lets this workflow trade its GitHub OIDC token for a key valid about an hour.
+# Neither needs a stored secret. A Trusted Publishing policy on nuget.org (owner
+# Hyeonu-Cha, repo dotnet-coverage-mcp, workflow release.yml) lets this workflow
+# trade its GitHub OIDC token for a key valid about an hour, and the MCP registry
+# accepts the same token for the io.github.Hyeonu-Cha namespace.
 #
 # After that, a release is just:
 #   git tag v0.1.0 && git push origin v0.1.0
@@ -17,7 +19,7 @@ on:
 
 permissions:
   contents: write
-  id-token: write # OIDC token for NuGet Trusted Publishing
+  id-token: write # OIDC token for NuGet Trusted Publishing and the MCP registry
 
 jobs:
   release:
@@ -79,3 +81,52 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" ./nupkg/*.nupkg --verify-tag --generate-notes
+
+  # A job of its own so that, if it fails, "Re-run failed jobs" retries only this
+  # part, not the NuGet push and the GitHub Release that already succeeded.
+  mcp-registry:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # `mcp-publisher login github-oidc`
+    env:
+      # Pinned and signature-checked, as the registry's guide recommends. Bump on purpose.
+      MCP_PUBLISHER_VERSION: v1.8.9
+    steps:
+      - uses: actions/checkout@v7
+
+      # The registry checks the package on NuGet, so it must be listed there first.
+      # NuGet's validation and indexing usually take 5-20 minutes.
+      - name: Wait for NuGet to index the package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for _ in $(seq 1 120); do
+            curl -fsS https://api.nuget.org/v3-flatcontainer/dotnet-coverage-mcp/index.json \
+              | jq -e --arg v "$version" '.versions | index($v)' > /dev/null && exit 0
+            sleep 30
+          done
+          echo "::error::NuGet had not indexed $version after 60 minutes. Re-run this job once it has."
+          exit 1
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download and verify mcp-publisher
+        run: |
+          archive=mcp-publisher_linux_amd64.tar.gz
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl -fsSL -o "$archive" "$base_url/$archive"
+          curl -fsSL -o "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+
+      # Log in right before publishing: the registry token lasts only a few minutes.
+      - name: Publish to the MCP registry
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
