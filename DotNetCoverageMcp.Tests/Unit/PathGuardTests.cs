@@ -95,6 +95,23 @@ public class PathGuardTests : IDisposable
     }
 
     [Fact]
+    public void Validate_FolderDifferingOnlyInCase_IsOutsideTheRootOnLinux()
+    {
+        // Regression: the check ignored case everywhere, so on Linux a root of .../repo also
+        // admitted .../REPO, a different folder. Windows and macOS file systems ignore case,
+        // so there it is the same folder and stays allowed.
+        var root = Path.Combine(_tempRoot, "repo");
+        var caseVariant = Path.Combine(_tempRoot, "REPO");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(caseVariant);
+        var guard = CreateGuardWithRoot(root);
+
+        var allowed = guard.IsWithinAllowedRoot(Path.Combine(caseVariant, "file.cs"));
+
+        allowed.Should().Be(OperatingSystem.IsWindows() || OperatingSystem.IsMacOS());
+    }
+
+    [Fact]
     public void Validate_SymlinkEscapingRoot_Throws()
     {
         // A link INSIDE the root that points OUTSIDE it must not pass the guard: the lexical
