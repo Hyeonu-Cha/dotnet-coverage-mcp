@@ -122,6 +122,11 @@ public class CoverageTools
                 return JsonHelper.Error("cancelled", "Test run was cancelled by the client.");
             case TestRunOutcome.Timeout:
                 return JsonHelper.Error("timeout", $"Test run timed out. Output (tail): {Tail(testResult.Output)}");
+            case TestRunOutcome.BuildError when LockedOutputDetail(testResult.Output, testResult.Error) is { } locked:
+                return JsonHelper.Error("projectBusy",
+                    "The build could not write its output files because another process holds them: another " +
+                    "dotnet test or build of this project, an IDE build, or a test host still running. The test " +
+                    $"code is not the problem; run again once that process has finished.\n{locked}");
             case TestRunOutcome.BuildError:
                 return JsonHelper.Error("buildError",
                     $"Build failed (exit code {testResult.ExitCode}).\n{BuildErrorDetail(testResult.Output, testResult.Error)}");
@@ -828,6 +833,30 @@ public class CoverageTools
         var shown = string.Join("\n", errors.Take(MaxBuildErrors));
         return errors.Count > MaxBuildErrors ? $"{shown}\n...({errors.Count - MaxBuildErrors} more errors)" : shown;
     }
+
+    // A build whose only errors are "cannot write/copy the output, it is in use" failed because
+    // another build or test host has the files open (Windows locks them), not because of the
+    // code. Reported as buildError, it sent the agent off "fixing" tests that were fine.
+    // CS2012/CS0016: the compiler can't open or write obj/…dll; MSB3021/MSB3027: the copy to
+    // bin/ failed; other MSBuild tasks (e.g. WriteLinesToFile) only say "being used by another
+    // process". ponytail: that phrase is English-only; on a localized OS only the codes match.
+    internal static string? LockedOutputDetail(string output, string error)
+    {
+        var errors = $"{output}\n{error}".Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Contains(": error ", StringComparison.Ordinal))
+            .Select(l => ProjectSuffix.Replace(l, ""))
+            .Distinct()
+            .ToList();
+        return errors.Count > 0 && errors.All(IsLockError) ? string.Join("\n", errors.Take(MaxBuildErrors)) : null;
+    }
+
+    private static bool IsLockError(string line) =>
+        line.Contains("error CS2012:", StringComparison.Ordinal)
+        || line.Contains("error CS0016:", StringComparison.Ordinal)
+        || line.Contains("error MSB3021:", StringComparison.Ordinal)
+        || line.Contains("error MSB3027:", StringComparison.Ordinal)
+        || line.Contains("being used by another process", StringComparison.Ordinal);
 
     private static readonly Regex ProjectSuffix = new(@"\s*\[[^\[\]]+\.(?:cs|vb|fs)proj(?:::[^\]]*)?\]$", RegexOptions.Compiled);
 

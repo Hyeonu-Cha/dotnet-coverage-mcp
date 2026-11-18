@@ -108,6 +108,8 @@ If `RunTestsWithCoverage` returns `errorType: "testsFailed"`, the build succeede
 
 If it returns `errorType: "noTestsMatched"`, the `filter` selected nothing. Omit it to run every test, or use a shorter name.
 
+If it returns `errorType: "projectBusy"`, another build, IDE or test host held the project's output files. Your tests are not the cause; run again without changing anything.
+
 ### Step 5: Re-run and check batch-level progress
 Call `RunTestsWithCoverage` **once** with the same broad filter.
 Call `GetCoverageGaps` again for the batch, and `GetCoverageDiff` to see method-level deltas.
