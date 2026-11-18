@@ -45,7 +45,7 @@ MCP clients list these tools in snake_case (`run_tests_with_coverage`, `get_file
 | `GetUncoveredBranches` | Find uncovered branch conditions for methods matching a given name. Returns all matching methods with partial name support. Supports `sessionId`. |
 | `GetCoverageDiff` | Compare current Cobertura XML against baseline. Shows method-level changes including new and removed methods. Supports `sessionId` for concurrent isolation. |
 | `AppendTestCode` | Insert or append C# test code into a test file. Rejects code that is not valid C# member syntax with `syntaxError`, leaving the file unchanged. Supports anchor-based insertion with whitespace-tolerant fallback matching. Uses atomic writes to prevent file corruption. |
-| `CleanupSession` | Remove session state files and the `TestResults-*` directories the tool created (never the bare `TestResults` that `dotnet test` and Visual Studio use). Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes` (default 120). |
+| `CleanupSession` | Remove session state files and the `TestResults-*` directories the tool created (never the bare `TestResults` that `dotnet test` and Visual Studio use). Pass the `sessionId` you ran with to remove that session's artifacts; omit it to remove the single-agent ones (`TestResults-mcp/`, `.coverage-state`, `.coverage-prev.xml`) plus other sessions' artifacts older than `maxAgeMinutes` (default 120). |
 
 ### Protocol details
 
@@ -63,7 +63,7 @@ For projects with many source files, the recommended workflow is:
 4. **Write tests** — Use `AppendTestCode` to add test methods
 5. **Re-run and diff** — Run tests once, call `GetCoverageDiff` to verify improvement
 6. **Repeat** — Continue until batch files meet the target rate (default 80%) or 3 cycles with no improvement, then move to next batch
-7. **Clean up** — Once the goal is reached, call `CleanupSession` to remove `TestResults-{hash}/` and session state files. These are **not** deleted automatically — they persist until `CleanupSession` is called (or until a time-based cleanup via `maxAgeMinutes`).
+7. **Clean up** — Once the goal is reached, call `CleanupSession` (with the same `sessionId`, if you used one) to remove `TestResults-mcp/` or `TestResults-{hash}/` and the session state files. These are **not** deleted automatically — they persist until `CleanupSession` is called.
 
 This minimises `dotnet test` invocations (the main bottleneck) while still tracking per-file progress.
 
@@ -299,8 +299,8 @@ Methods are ranked by how many uncovered lines and branch outcomes they hold, co
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `workingDir` | string | Yes | Project working directory containing `.mcp-coverage/` and TestResults artifacts |
-| `sessionId` | string | No | When set, removes only state files and directories scoped to this session. |
-| `maxAgeMinutes` | int | No | When `sessionId` is omitted, removes artifacts older than this many minutes. Default `120`. |
+| `sessionId` | string | No | When set, removes only state files and directories scoped to this session. When omitted, removes the single-agent artifacts whatever their age. |
+| `maxAgeMinutes` | int | No | When `sessionId` is omitted, also removes other sessions' artifacts older than this many minutes. Default `120`. |
 
 ## State Files
 
