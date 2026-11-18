@@ -197,6 +197,37 @@ public class CoverageToolsTests : IDisposable
         CoverageTools.BuildErrorDetail(output, "").Should().Be(@"C:\src\T\Broken.cs(2,1): error CS1002: ; expected");
     }
 
+    // Real output of two concurrent `dotnet test` runs of one project on Windows.
+    private const string LockedBuildOutput = """
+        CSC : error CS2012: Cannot open 'C:\src\T\obj\Debug\net10.0\T.dll' for writing -- The process cannot access the file 'C:\src\T\obj\Debug\net10.0\T.dll' because it is being used by another process. [C:\src\T\T.csproj]
+        """;
+
+    [Fact]
+    public async Task RunTestsWithCoverage_OutputFilesLocked_ReportsProjectBusyNotBuildError()
+    {
+        SetupTestRun(new TestRunResult(TestRunOutcome.BuildError, LockedBuildOutput, "", 1, null));
+
+        var result = await _sut.RunTestsWithCoverage(_proj, null, "/dir");
+
+        AssertError(result, "projectBusy");
+        result.Should().Contain("CS2012").And.Contain("run again");
+    }
+
+    [Fact]
+    public void LockedOutputDetail_RealCompileErrorAlongside_IsNotTreatedAsBusy()
+    {
+        var output = LockedBuildOutput + "\nC:\\src\\T\\Broken.cs(2,1): error CS1002: ; expected [C:\\src\\T\\T.csproj]";
+
+        CoverageTools.LockedOutputDetail(output, "").Should().BeNull("a real compile error still needs fixing");
+        CoverageTools.LockedOutputDetail("MSBUILD : error MSB3027: Could not copy \"obj\\T.dll\" to \"bin\\T.dll\". Exceeded retry count of 10. Failed.", "")
+            .Should().Contain("MSB3027");
+        CoverageTools.LockedOutputDetail("CSC : error CS0016: Could not write to output file 'C:\\src\\T\\obj\\T.dll' -- 'The process cannot access the file because it is being used by another process.'", "")
+            .Should().Contain("CS0016");
+        CoverageTools.LockedOutputDetail("C:\\sdk\\Microsoft.Common.CurrentVersion.targets(5400,5): error MSB3491: Could not write lines to file \"obj\\T.csproj.FileListAbsolute.txt\". The process cannot access the file because it is being used by another process.", "")
+            .Should().Contain("MSB3491");
+        CoverageTools.LockedOutputDetail("Build FAILED.", "").Should().BeNull();
+    }
+
     [Fact]
     public void BuildErrorDetail_NoErrorLines_FallsBackToTail()
     {
