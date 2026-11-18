@@ -271,6 +271,31 @@ public class SessionManagerTests : IDisposable
     }
 
     [Fact]
+    public void Cleanup_WithoutSessionId_RemovesSingleAgentArtifactsWhateverTheirAge()
+    {
+        // Regression: the end-of-run cleanup (no sessionId, default maxAgeMinutes) left the run
+        // it was cleaning up behind, because everything it had just written was too new.
+        var stateDir = Path.Combine(_tempDir, ".mcp-coverage");
+        Directory.CreateDirectory(stateDir);
+        var otherKey = _sut.ComputeKey("another-agent");
+        foreach (var name in new[] { ".coverage-state", ".coverage-prev.xml", $".coverage-state-{otherKey}" })
+            File.WriteAllText(Path.Combine(stateDir, name), "data");
+        var ownResults = Path.Combine(_tempDir, "TestResults-mcp");
+        var otherResults = Path.Combine(_tempDir, $"TestResults-{otherKey}");
+        Directory.CreateDirectory(ownResults);
+        Directory.CreateDirectory(otherResults);
+
+        var removed = _sut.Cleanup(_tempDir, null, 120);
+
+        removed.Should().Be(3);
+        _fileService.Verify(f => f.SafeDelete(ownResults), Times.Once);
+        _fileService.Verify(f => f.SafeDelete(otherResults), Times.Never);
+        File.Exists(Path.Combine(stateDir, ".coverage-state")).Should().BeFalse();
+        File.Exists(Path.Combine(stateDir, ".coverage-prev.xml")).Should().BeFalse();
+        File.Exists(Path.Combine(stateDir, $".coverage-state-{otherKey}")).Should().BeTrue();
+    }
+
+    [Fact]
     public void Cleanup_WithSessionId_DeletesOnlyItsOwnArtifactDirs_NotUnsuffixed()
     {
         // Regression: a session-scoped cleanup also deleted the unsuffixed TestResults/

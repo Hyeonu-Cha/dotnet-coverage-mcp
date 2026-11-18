@@ -771,13 +771,13 @@ public class CoverageTools
     // --- 8. CleanupSession ---
 
     [McpServerTool(Title = "Clean up coverage artifacts", ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = false)]
-    [Description("Remove session state files and the TestResults-* directories this tool created (never the bare TestResults that dotnet test and Visual Studio use). Pass `sessionId` to scope, or omit to clean artifacts older than `maxAgeMinutes`.")]
+    [Description("Remove session state files and the TestResults-* directories this tool created (never the bare TestResults that dotnet test and Visual Studio use). Pass the `sessionId` you ran with to remove that session's artifacts; omit it to remove the single-agent ones (TestResults-mcp, the unscoped state and baseline) plus any other session's older than `maxAgeMinutes`. Call it once the coverage goal is met.")]
     public string CleanupSession(
-        [Description("Project working directory containing .mcp-coverage/, TestResults*, and coveragereport* artifacts to clean. Must be inside COVERAGE_MCP_ALLOWED_ROOT when that environment variable is set.")]
+        [Description("Project working directory containing .mcp-coverage/ and the TestResults-* artifacts to clean. Must be inside COVERAGE_MCP_ALLOWED_ROOT when that environment variable is set.")]
         string workingDir,
-        [Description("When set, removes only state files and directories whose name suffix matches this session's hash. Omit to do an age-based sweep instead.")]
+        [Description("When set, removes only state files and directories whose name suffix matches this session's hash. Omit after single-agent runs that passed no sessionId.")]
         string? sessionId = null,
-        [Description("When `sessionId` is omitted, removes artifacts older than this many minutes. Ignored when `sessionId` is set. Default 120.")]
+        [Description("When `sessionId` is omitted, also removes other sessions' artifacts older than this many minutes. Ignored when `sessionId` is set. Default 120.")]
         int maxAgeMinutes = 120)
     {
         try { _pathGuard.Validate(workingDir, nameof(workingDir)); }
