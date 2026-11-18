@@ -64,6 +64,39 @@ public class FileServiceTests : IDisposable
         Directory.GetFiles(_tempDir, ".tmp-*").Should().BeEmpty();
     }
 
+    // Regression: every rewrite used UTF-8 without a BOM, so AppendTestCode stripped the BOM
+    // Visual Studio puts on C# files.
+    [Theory]
+    [InlineData("utf-8-bom")]
+    [InlineData("utf-8")]
+    [InlineData("utf-16")]
+    public void AtomicWriteFile_KeepsTheReplacedFilesEncoding(string kind)
+    {
+        var path = Path.Combine(_tempDir, "Tests.cs");
+        var encoding = kind switch
+        {
+            "utf-8-bom" => new System.Text.UTF8Encoding(true),
+            "utf-8" => new System.Text.UTF8Encoding(false),
+            _ => System.Text.Encoding.Unicode,
+        };
+        File.WriteAllText(path, "class A { }", encoding);
+
+        _sut.AtomicWriteFile(path, "class A { void B() { } } // é");
+
+        var expected = encoding.GetPreamble().Concat(encoding.GetBytes("class A { void B() { } } // é")).ToArray();
+        File.ReadAllBytes(path).Should().Equal(expected);
+    }
+
+    [Fact]
+    public void AtomicWriteFile_NewFile_IsUtf8WithoutBom()
+    {
+        var path = Path.Combine(_tempDir, "new.txt");
+
+        _sut.AtomicWriteFile(path, "x");
+
+        File.ReadAllBytes(path).Should().Equal((byte)'x');
+    }
+
     [Fact]
     public void AtomicWriteFile_WritesContentCorrectly()
     {
