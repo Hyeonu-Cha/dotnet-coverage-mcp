@@ -266,8 +266,8 @@ Returns a one-line `summary` (e.g. `xunit 2.9.3 on VSTest, coverlet.collector, M
 | `coberturaXmlPath` | string | Yes | Path to `coverage.cobertura.xml` (falls back to `.mcp-coverage/.coverage-state` if not found) |
 | `path` | string | Yes | Scope: a `.cs` file, folder, `.csproj`, or comma-separated list of `.cs` files (e.g. a batch) |
 | `targetRate` | double | No | Per-file target (0.0–1.0) for both line and branch coverage. Default `0.8`. |
-| `maxFiles` | int | No | Below-target files returned in detail, smallest gap first; the rest are listed with rates only. Default `5`. |
-| `maxMethodsPerFile` | int | No | Maximum methods returned per file. Default `5`. |
+| `maxFiles` | int | No | Below-target files returned in detail, smallest gap first; the rest are listed with rates only. Default `5`, at most `20`. |
+| `maxMethodsPerFile` | int | No | Maximum methods returned per file. Default `5`, at most `20`. |
 | `includeSource` | bool | No | Include the source lines around each gap (2 lines of context, at most 30 per method). Default `true`. |
 | `sessionId` | string | No | Resolves the session-scoped state file for concurrent isolation. |
 

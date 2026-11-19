@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not, the file is now left unchanged and `insertFailed` names the error and suggests an
   anchor from a single member or `targetClass`. The fallback also keeps the file's line
   endings now, like the Roslyn path.
+- `GetCoverageGaps` accepted any `maxFiles` and `maxMethodsPerFile`, so a large value with
+  source on returned a response big enough to fill the agent's context. Both are now capped
+  at 20; files past the cap are still listed, with their rates, under `moreRemaining`.
 
 ### Changed
 - The release build sets `ContinuousIntegrationBuild`, so the shipped PDB maps source paths
