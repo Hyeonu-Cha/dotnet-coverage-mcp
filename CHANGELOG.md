@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.6] - 2026-11-19
+
 ### Fixed
 - A test that crashed or hung the test host was misreported by `RunTestsWithCoverage`. A
   crash before any result left `total="0"` in the TRX and came back as `noTestsMatched` ("The
