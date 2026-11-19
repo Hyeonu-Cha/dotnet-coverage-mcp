@@ -34,4 +34,17 @@ public class JsonHelperTests
         doc.RootElement.GetProperty("foo").GetString().Should().Be("bar");
         doc.RootElement.GetProperty("count").GetInt32().Should().Be(3);
     }
+
+    [Fact]
+    public void Serialize_KeepsCodeAndNonAsciiReadable_EscapingOnlyWhatJsonRequires()
+    {
+        // Regression: the default encoder turned `if (n < 0) return "negative";` into
+        // `if (n < 0) return "negative";` and each Korean character into \uXXXX.
+        const string snippet = "if (n < 0) return \"negative\"; List<T> a && b; it's 테스트";
+
+        var json = JsonHelper.Serialize(new { source = snippet });
+
+        json.Should().Be("{\"source\":\"if (n < 0) return \\\"negative\\\"; List<T> a && b; it's 테스트\"}");
+        JsonDocument.Parse(json).RootElement.GetProperty("source").GetString().Should().Be(snippet);
+    }
 }

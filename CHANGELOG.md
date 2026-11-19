@@ -38,6 +38,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.mcp-coverage/.coverage-prev.xml` and answered `firstRun`. The report is now parsed before it
   becomes the baseline, and every coverage tool rejects XML whose root is not `<coverage>`
   instead of reading it as an empty report.
+- The server loaded `appsettings*.json` from its current folder, which MCP clients set to the
+  user's repository, and a malformed one made it crash on startup (`InvalidDataException`), so
+  it could not be used in that repository at all. Settings now come from the server's own
+  folder, which holds none. The smoke test starts the server next to a malformed file.
+
+### Changed
+- Tool responses no longer escape `<`, `>`, `&`, `'`, `"` and non-ASCII characters as `\uXXXX`.
+  A source snippet's `if (n < 0) return "negative";` came back as
+  `if (n < 0) return "negative";`, and every character of a non-Latin folder
+  name took six. Only what JSON requires is escaped now; responses are read by a model, never
+  embedded in HTML.
 
 ### Security
 - Coverage reports, TRX files, Blame sequence files and project files were loaded with

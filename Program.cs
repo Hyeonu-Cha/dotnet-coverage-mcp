@@ -3,7 +3,14 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using DotNetCoverageMcp.Services;
 
-var builder = Host.CreateApplicationBuilder(args);
+// The content root defaults to the current folder, which MCP clients set to the user's repository:
+// the server then loaded that repository's appsettings*.json, and a malformed one stopped it from
+// starting at all. Its own folder holds no settings files.
+var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory,
+});
 
 builder.Logging.AddConsole(options =>
 {
