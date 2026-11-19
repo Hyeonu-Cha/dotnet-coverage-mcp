@@ -76,4 +76,5 @@ Class: MyService
 | `missingExtension` error | The project runs on Microsoft.Testing.Platform and lacks the extension named in the message (usually `Microsoft.Testing.Extensions.CodeCoverage`); add that package and set `forceRestore: true` on the next run |
 | `noTestsMatched` error | The filter selected nothing: omit it to run every test, or use a shorter name |
 | `projectBusy` error | Another build, IDE or test host held the output files; run again, nothing in the tests needs fixing |
+| `testRunAborted` error | A test crashed or hung the test host. `crash` shows the message and frames; otherwise the cause is among `unfinishedTests`. Fix that test and run again; for a test that legitimately runs long, raise `COVERAGE_MCP_HANG_TIMEOUT_SECONDS` |
 | Cobertura XML not found | Check the `coverage.cobertura.xml` path returned by `RunTestsWithCoverage`; ensure tests ran successfully |

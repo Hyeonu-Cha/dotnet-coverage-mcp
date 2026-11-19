@@ -128,6 +128,30 @@ public class DotnetTestMtpEndToEndTests : IClassFixture<SampleProjectMtpFixture>
     }
 
     [Fact]
+    public async Task TestCrashingTheHost_ReturnsTestRunAborted_WithTheCrashFromTheConsole()
+    {
+        // Regression: MTP exits 7 with "total: 0" when the test host crashes, which read as "no tests".
+        var path = Path.Combine(Path.GetDirectoryName(_fixture.TestProjectPath)!, "CrashTests.cs");
+        File.WriteAllText(path, """
+            namespace SampleLib.Tests;
+            public class CrashTests { [Fact] public void CrashesTheTestHost() => Environment.FailFast("simulated crash in a test"); }
+            """);
+        try
+        {
+            var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath);
+
+            using var doc = JsonDocument.Parse(result);
+            doc.RootElement.GetProperty("errorType").GetString().Should().Be("testRunAborted", because: result);
+            doc.RootElement.GetProperty("crash").GetString().Should().Contain("simulated crash in a test");
+            doc.RootElement.TryGetProperty("coberturaXmlPath", out _).Should().BeFalse();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task CoverageGaps_WorkOnMicrosoftsReport()
     {
         var xml = await Run();

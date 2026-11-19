@@ -110,6 +110,8 @@ If it returns `errorType: "noTestsMatched"`, the `filter` selected nothing. Omit
 
 If it returns `errorType: "projectBusy"`, another build, IDE or test host held the project's output files. Your tests are not the cause; run again without changing anything.
 
+If it returns `errorType: "testRunAborted"`, a test crashed or hung the test host and the run stopped part-way. `crash` shows where (the message and frames in your code); without it, the cause is among `unfinishedTests`, which can also list tests that were merely running in parallel. Fix that test, usually one you just wrote (an unbounded recursion, a wait that never ends, `Environment.Exit`), and run again. The run's coverage is incomplete, so do not call `GetCoverageGaps` until a run completes.
+
 ### Step 5: Re-run and check batch-level progress
 Call `RunTestsWithCoverage` **once** with the same broad filter.
 Call `GetCoverageGaps` again for the batch, and `GetCoverageDiff` to see method-level deltas.

@@ -6,11 +6,11 @@ namespace DotNetCoverageMcp.Services;
 
 // Outcome of a test run, reported as a typed enum so consumers branch on a stable
 // signal instead of string-matching the Error text (which used to carry sentinels).
-public enum TestRunOutcome { Success, TestsFailed, NoTestsMatched, BuildError, MissingExtension, Cancelled, Timeout }
+public enum TestRunOutcome { Success, TestsFailed, NoTestsMatched, BuildError, MissingExtension, Cancelled, Timeout, Aborted }
 
 public record TestRunResult(
     TestRunOutcome Outcome, string Output, string Error, int ExitCode, string? CoverageXmlPath,
-    TestSummary? Summary = null);
+    TestSummary? Summary = null, TestRunAbort? Abort = null);
 
 public interface IProcessRunner
 {
@@ -26,7 +26,7 @@ public class ProcessRunner : IProcessRunner
     // Per-test hang timeout passed to `dotnet test --blame-hang-timeout`. A single test
     // exceeding this aborts the whole run and writes a hang dump, so make it configurable:
     // raise it for legitimately long integration tests. Kept at 30s by default.
-    private static readonly int HangTimeoutSeconds = ReadPositiveIntEnv("COVERAGE_MCP_HANG_TIMEOUT_SECONDS", 30);
+    internal static readonly int HangTimeoutSeconds = ReadPositiveIntEnv("COVERAGE_MCP_HANG_TIMEOUT_SECONDS", 30);
     // Bounded wait for stdout/stderr to drain after the child process has been killed.
     // Long enough for the OS to flush the pipe buffer, short enough not to extend a timeout.
     private static readonly TimeSpan PostKillDrainWait = TimeSpan.FromSeconds(1);
@@ -129,7 +129,9 @@ public class ProcessRunner : IProcessRunner
             if (mtp) summary ??= ParseMtpSummary(output);
 
             var runOutcome = mtp ? ClassifyMtp(process.ExitCode, summary) : Classify(process.ExitCode, summary);
-            return new TestRunResult(runOutcome, output, error, process.ExitCode, coverageXmlPath, summary);
+            var abort = runOutcome != TestRunOutcome.Aborted ? null : TrxReader.ReadAbort(
+                FilesIn(resultsDir, "*.trx"), FilesIn(resultsDir, "Sequence_*.xml"), mtp ? output : null);
+            return new TestRunResult(runOutcome, output, error, process.ExitCode, coverageXmlPath, summary, abort);
         }
         finally
         {
@@ -201,12 +203,14 @@ public class ProcessRunner : IProcessRunner
         return args;
     }
 
-    // MTP exit codes: 0 success, 2 failed tests, 5 unknown option (extension not referenced),
-    // 8 zero tests ran. 1 comes from MSBuild when the build fails.
+    // MTP exit codes: 0 success, 2 failed tests, 3 session aborted, 5 unknown option (extension
+    // not referenced), 7 test host crashed, 8 zero tests ran. 1 comes from MSBuild when the
+    // build fails. A crash leaves "total: 0", which read as "no tests" before 7 was handled.
     internal static TestRunOutcome ClassifyMtp(int exitCode, TestSummary? summary) => exitCode switch
     {
         5 => TestRunOutcome.MissingExtension,
         8 => TestRunOutcome.NoTestsMatched,
+        3 or 7 when summary is not { Failed: > 0 } => TestRunOutcome.Aborted,
         _ when summary != null => Classify(exitCode, summary),
         0 => TestRunOutcome.Success,
         2 => TestRunOutcome.TestsFailed,
@@ -249,17 +253,24 @@ public class ProcessRunner : IProcessRunner
         }
     }
 
-    // No TRX means the run never reached test execution, i.e. the build failed. With TRX,
-    // zero tests is reported on its own: dotnet test exits 0 for it and coverlet still
-    // writes an all-zero report, which used to look like a successful run.
+    // No TRX means the run never reached test execution, i.e. the build failed. With TRX:
+    // - a failed test is the thing to fix, even if the run also stopped early;
+    // - any other non-zero exit means the run stopped before it finished: a test crashed the
+    //   test host, or hung until the blame hang timeout killed it. Those were reported as
+    //   "no tests" (a crash before any result leaves total="0") or "0 of N tests failed";
+    // - zero tests with exit 0 is "nothing matched": dotnet test exits 0 for it and coverlet
+    //   still writes an all-zero report, which used to look like a successful run.
     internal static TestRunOutcome Classify(int exitCode, TestSummary? summary) => summary switch
     {
         null => exitCode == 0 ? TestRunOutcome.Success : TestRunOutcome.BuildError,
-        { Total: 0 } => TestRunOutcome.NoTestsMatched,
         { Failed: > 0 } => TestRunOutcome.TestsFailed,
-        // Non-zero exit with no failed test: the run was aborted, e.g. by the hang timeout.
-        _ => exitCode == 0 ? TestRunOutcome.Success : TestRunOutcome.TestsFailed
+        _ when exitCode != 0 => TestRunOutcome.Aborted,
+        { Total: 0 } => TestRunOutcome.NoTestsMatched,
+        _ => TestRunOutcome.Success
     };
+
+    private static string[] FilesIn(string dir, string pattern) =>
+        Directory.Exists(dir) ? Directory.GetFiles(dir, pattern, SearchOption.AllDirectories) : [];
 
     private static async Task<string> ReadLinesAsync(StreamReader reader, IProgress<string>? progress)
     {

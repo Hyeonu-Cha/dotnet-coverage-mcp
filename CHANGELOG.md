@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A test that crashed or hung the test host was misreported by `RunTestsWithCoverage`. A
+  crash before any result left `total="0"` in the TRX and came back as `noTestsMatched` ("The
+  test project contains no tests"); a hang killed by the blame hang timeout came back as
+  `testsFailed` with "0 of N tests failed" and no failures. On Microsoft.Testing.Platform a
+  crash (exit code 7) read as "no tests" too. Such runs now return `testRunAborted` with the
+  reason from the TRX, the crash's message and frames in the user's code (from the TRX on
+  VSTest, the console on MTP), and the tests the Blame collector saw start but not finish.
+  Their coverage is incomplete and is not offered. Classification uses exit codes and
+  counts, not console text, so it does not depend on the SDK's language.
+
 ## [2.0.5] - 2026-11-19
 
 ### Fixed
