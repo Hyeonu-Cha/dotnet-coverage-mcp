@@ -9,6 +9,8 @@ public class CoverageToolsTests : IDisposable
 {
     // RunTestsWithCoverage requires the project file to exist; the runner itself is mocked.
     private readonly string _proj = Path.Combine(Path.GetTempPath(), $"proj-{Guid.NewGuid():N}.csproj");
+    // RunTestsWithCoverage refuses a workingDir that does not exist, so the runs below need a real one.
+    private readonly string _workDir = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"work-{Guid.NewGuid():N}")).FullName;
     private readonly Mock<IProcessRunner> _processRunner = new();
     private readonly Mock<ISessionManager> _sessionManager = new();
     private readonly Mock<IFileService> _fileService = new();
@@ -33,7 +35,11 @@ public class CoverageToolsTests : IDisposable
         File.WriteAllText(_proj, "<Project />");
     }
 
-    public void Dispose() => File.Delete(_proj);
+    public void Dispose()
+    {
+        File.Delete(_proj);
+        Directory.Delete(_workDir, recursive: true);
+    }
 
     // --- RunTestsWithCoverage ---
 
@@ -85,7 +91,7 @@ public class CoverageToolsTests : IDisposable
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "", "", 0, "/coverage.xml"));
 
-        await _sut.RunTestsWithCoverage(Path.GetRelativePath(Environment.CurrentDirectory, _proj), null, "/dir");
+        await _sut.RunTestsWithCoverage(Path.GetRelativePath(Environment.CurrentDirectory, _proj), null, _workDir);
 
         // A relative path is passed to dotnet as a rooted path, never as a bare token that could
         // be read as an option.
@@ -106,10 +112,10 @@ public class CoverageToolsTests : IDisposable
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "", "", 0, "/coverage.xml"));
 
-        var result = await _sut.RunTestsWithCoverage(_proj, filter, "/dir");
+        var result = await _sut.RunTestsWithCoverage(_proj, filter, _workDir);
 
         result.Should().Contain("coverage.xml");
-        _sessionManager.Verify(s => s.SaveCoverageState("/dir", "/coverage.xml", "*", null), Times.Once);
+        _sessionManager.Verify(s => s.SaveCoverageState(_workDir, "/coverage.xml", "*", null), Times.Once);
     }
 
     [Fact]
@@ -120,7 +126,7 @@ public class CoverageToolsTests : IDisposable
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(TestRunOutcome.Cancelled, "", "", -1, null));
 
-        var result = await _sut.RunTestsWithCoverage(_proj, "Ns.Class", "/dir");
+        var result = await _sut.RunTestsWithCoverage(_proj, "Ns.Class", _workDir);
         AssertError(result, "cancelled");
     }
 
@@ -132,7 +138,7 @@ public class CoverageToolsTests : IDisposable
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(TestRunOutcome.BuildError, "output", "error", 1, null));
 
-        var result = await _sut.RunTestsWithCoverage(_proj, "Ns.Class", "/dir");
+        var result = await _sut.RunTestsWithCoverage(_proj, "Ns.Class", _workDir);
         AssertError(result, "buildError");
     }
 
@@ -149,7 +155,7 @@ public class CoverageToolsTests : IDisposable
             [new TestFailure("Ns.CalcTests.Add_Fails", "Expected 1, got 2", "at Ns.CalcTests.Add_Fails()")]);
         SetupTestRun(new TestRunResult(TestRunOutcome.TestsFailed, "", "", 1, "/coverage.xml", summary));
 
-        var result = await _sut.RunTestsWithCoverage(_proj, "Ns.Class", "/dir");
+        var result = await _sut.RunTestsWithCoverage(_proj, "Ns.Class", _workDir);
 
         AssertError(result, "testsFailed");
         using var doc = JsonDocument.Parse(result);
@@ -157,7 +163,7 @@ public class CoverageToolsTests : IDisposable
         doc.RootElement.GetProperty("failures")[0].GetProperty("test").GetString().Should().Be("Ns.CalcTests.Add_Fails");
         doc.RootElement.GetProperty("coberturaXmlPath").GetString().Should().Be("/coverage.xml");
         // Coverage of the passing tests stays usable by the per-file tools.
-        _sessionManager.Verify(s => s.SaveCoverageState("/dir", "/coverage.xml", "Ns.Class", null), Times.Once);
+        _sessionManager.Verify(s => s.SaveCoverageState(_workDir, "/coverage.xml", "Ns.Class", null), Times.Once);
     }
 
     [Fact]
@@ -168,7 +174,7 @@ public class CoverageToolsTests : IDisposable
         SetupTestRun(new TestRunResult(TestRunOutcome.Aborted, "", "", 1, "/coverage.xml",
             new TestSummary(3, 3, 0, 0, []), abort));
 
-        var result = await _sut.RunTestsWithCoverage(_proj, null, "/dir");
+        var result = await _sut.RunTestsWithCoverage(_proj, null, _workDir);
 
         AssertError(result, "testRunAborted");
         using var doc = JsonDocument.Parse(result);
@@ -188,7 +194,7 @@ public class CoverageToolsTests : IDisposable
     {
         SetupTestRun(new TestRunResult(TestRunOutcome.NoTestsMatched, "", "", 0, "/coverage.xml", new TestSummary(0, 0, 0, 0, [])));
 
-        var result = await _sut.RunTestsWithCoverage(_proj, "DoesNotExist", "/dir");
+        var result = await _sut.RunTestsWithCoverage(_proj, "DoesNotExist", _workDir);
 
         AssertError(result, "noTestsMatched");
         result.Should().Contain("DoesNotExist");
@@ -201,7 +207,7 @@ public class CoverageToolsTests : IDisposable
     {
         SetupTestRun(new TestRunResult(TestRunOutcome.Success, "", "", 0, "/coverage.xml", new TestSummary(5, 4, 0, 1, [])));
 
-        var result = await _sut.RunTestsWithCoverage(_proj, null, "/dir");
+        var result = await _sut.RunTestsWithCoverage(_proj, null, _workDir);
 
         result.Should().Contain("Passed: 4, Failed: 0, Skipped: 1.");
     }
@@ -230,7 +236,7 @@ public class CoverageToolsTests : IDisposable
     {
         SetupTestRun(new TestRunResult(TestRunOutcome.BuildError, LockedBuildOutput, "", 1, null));
 
-        var result = await _sut.RunTestsWithCoverage(_proj, null, "/dir");
+        var result = await _sut.RunTestsWithCoverage(_proj, null, _workDir);
 
         AssertError(result, "projectBusy");
         result.Should().Contain("CS2012").And.Contain("run again");
@@ -279,8 +285,36 @@ public class CoverageToolsTests : IDisposable
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "output", "", 0, null));
 
-        var result = await _sut.RunTestsWithCoverage(_proj, "Ns.Class", "/dir");
+        var result = await _sut.RunTestsWithCoverage(_proj, "Ns.Class", _workDir);
         AssertError(result, "noCoverage");
+        // dotnet test can finish without a word (an unrestored or non-test project); say what to check.
+        result.Should().Contain("coverage collector").And.Contain("get_test_environment");
+    }
+
+    [Fact]
+    public async Task RunTestsWithCoverage_MissingWorkingDir_ReturnsFileNotFound_WithoutRunning()
+    {
+        // Regression: Process.Start threw, and the agent got the SDK's generic error.
+        var result = await _sut.RunTestsWithCoverage(_proj, null, Path.Combine(_workDir, "no-such-folder"));
+
+        AssertError(result, "fileNotFound");
+        result.Should().Contain("workingDir");
+        _processRunner.Verify(p => p.RunDotnetTestAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RunTestsWithCoverage_DotnetCannotStart_ReturnsDotnetNotFound()
+    {
+        _processRunner.Setup(p => p.RunDotnetTestAsync(
+            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new System.ComponentModel.Win32Exception(2, "The system cannot find the file specified"));
+
+        var result = await _sut.RunTestsWithCoverage(_proj, null, _workDir);
+
+        AssertError(result, "dotnetNotFound");
+        result.Should().Contain("The system cannot find the file specified").And.Contain("PATH");
     }
 
     [Fact]
@@ -291,10 +325,10 @@ public class CoverageToolsTests : IDisposable
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "test output", "", 0, "/coverage.xml"));
 
-        var result = await _sut.RunTestsWithCoverage(_proj, "Ns.Class", "/dir");
+        var result = await _sut.RunTestsWithCoverage(_proj, "Ns.Class", _workDir);
 
         result.Should().Be("Tests completed.\nCobertura XML at: /coverage.xml");
-        _sessionManager.Verify(s => s.SaveCoverageState("/dir", "/coverage.xml", "Ns.Class", null), Times.Once);
+        _sessionManager.Verify(s => s.SaveCoverageState(_workDir, "/coverage.xml", "Ns.Class", null), Times.Once);
     }
 
     [Fact]
@@ -305,13 +339,13 @@ public class CoverageToolsTests : IDisposable
             It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TestRunResult(TestRunOutcome.Cancelled, "", "", -1, null));
 
-        await _sut.RunTestsWithCoverage(_proj, "Ns.Class", "/dir");
+        await _sut.RunTestsWithCoverage(_proj, "Ns.Class", _workDir);
 
         // Its own folder, never the bare TestResults that dotnet test and Visual Studio use.
-        _fileService.Verify(f => f.SafeDelete(Path.Combine("/dir", "TestResults-mcp")), Times.Once);
-        _fileService.Verify(f => f.SafeDelete(Path.Combine("/dir", "TestResults")), Times.Never);
+        _fileService.Verify(f => f.SafeDelete(Path.Combine(_workDir, "TestResults-mcp")), Times.Once);
+        _fileService.Verify(f => f.SafeDelete(Path.Combine(_workDir, "TestResults")), Times.Never);
         _processRunner.Verify(p => p.RunDotnetTestAsync(
-            It.IsAny<string>(), It.IsAny<string?>(), Path.Combine("/dir", "TestResults-mcp"), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string?>(), Path.Combine(_workDir, "TestResults-mcp"), It.IsAny<string>(),
             It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 

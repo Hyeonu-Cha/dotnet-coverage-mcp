@@ -217,6 +217,20 @@ public class TrxReaderTests : IDisposable
     }
 
     [Fact]
+    public void Read_TruncatedTrx_IsSkipped_InsteadOfThrowing()
+    {
+        // A test host killed mid-write can leave a cut-off TRX; it used to escape as an
+        // XmlException and the agent got the SDK's generic error.
+        var good = WriteTrx("""total="2" executed="2" passed="2" failed="0" """);
+        var truncated = Path.Combine(_dir, "cut.trx");
+        File.WriteAllText(truncated, "<?xml version=\"1.0\"?><TestRun xmlns=\"http://microsoft.com/schemas/VisualStudio/TeamTest/2010\"><Results><UnitTestRes");
+
+        TrxReader.Read([truncated]).Should().BeNull("nothing readable is the same as no TRX");
+        TrxReader.Read([good, truncated])!.Passed.Should().Be(2);
+        TrxReader.ReadAbort([truncated], [], null).Reasons.Should().BeEmpty();
+    }
+
+    [Fact]
     public void ReadAbort_UnreadableSequenceFile_IsSkipped()
     {
         var broken = Path.Combine(_dir, "Sequence_broken.xml");

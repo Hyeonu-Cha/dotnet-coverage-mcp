@@ -54,7 +54,7 @@ public class SampleProjectFixture : IDisposable
                 $"dotnet {string.Join(' ', args)} failed ({p.ExitCode}):\n{stdout.Result}\n{stderr.Result}");
     }
 
-    private static void CopyDirectory(string source, string target)
+    internal static void CopyDirectory(string source, string target)
     {
         foreach (var dir in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
             Directory.CreateDirectory(dir.Replace(source, target));

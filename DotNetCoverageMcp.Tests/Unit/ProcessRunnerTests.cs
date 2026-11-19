@@ -242,6 +242,37 @@ public class ProcessRunnerTests
         ProcessRunner.ProgressMessage(line).Should().BeNull();
 
     [Fact]
+    public void BuildTestArguments_HangDetection_WritesNoMemoryDump()
+    {
+        // VSTest's default writes two full dumps of the test host (~330 MB for a 3-test project,
+        // with everything it held in memory) into the project; the Sequence file and TRX that
+        // name the hung test are written without them.
+        var args = ProcessRunner.BuildTestArguments("p.csproj", null, "/r", false, null);
+
+        args.Should().ContainInConsecutiveOrder("--blame-hang-dump-type", "none");
+        args.Should().Contain("--blame-hang-timeout");
+    }
+
+    [Fact]
+    public void IsRestored_LooksForTheAssetsFileNextToTheProject()
+    {
+        var dir = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), $"restored-{Guid.NewGuid():N}")).FullName;
+        try
+        {
+            var project = Path.Combine(dir, "App.Tests.csproj");
+            ProcessRunner.IsRestored(project).Should().BeFalse("a fresh clone has no obj/project.assets.json");
+
+            Directory.CreateDirectory(Path.Combine(dir, "obj"));
+            File.WriteAllText(Path.Combine(dir, "obj", "project.assets.json"), "{}");
+            ProcessRunner.IsRestored(project).Should().BeTrue();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void BuildTestArguments_ForceRestore_OmitsNoRestore()
     {
         ProcessRunner.BuildTestArguments("p.csproj", null, "/r", forceRestore: true, null)

@@ -61,9 +61,13 @@ public class ProcessRunner : IProcessRunner
             if (!mtp && !string.IsNullOrWhiteSpace(includeClass))
                 runSettingsPath = WriteIncludeRunSettings(includeClass);
 
+            // --no-restore on a project that was never restored doesn't fail: without the restore,
+            // the test SDK's build files aren't imported, so dotnet test doesn't see a test project
+            // and exits 0 having done nothing. Restore whenever the assets file is missing.
+            var restore = forceRestore || !IsRestored(testProjectPath);
             var args = mtp
-                ? BuildMtpTestArguments(testProjectPath, filter, resultsDir, forceRestore, HasTrxExtension(testProjectPath))
-                : BuildTestArguments(testProjectPath, filter, resultsDir, forceRestore, runSettingsPath);
+                ? BuildMtpTestArguments(testProjectPath, filter, resultsDir, restore, HasTrxExtension(testProjectPath))
+                : BuildTestArguments(testProjectPath, filter, resultsDir, restore, runSettingsPath);
             // ArgumentList instead of string concatenation to prevent injection.
             foreach (var arg in args)
                 psi.ArgumentList.Add(arg);
@@ -150,6 +154,12 @@ public class ProcessRunner : IProcessRunner
         if (!forceRestore) args.Add("--no-restore");
         args.Add("--blame-hang-timeout");
         args.Add($"{HangTimeoutSeconds}s");
+        // VSTest's default for a hang is a full memory dump, written twice into the project's
+        // results folder: about 330 MB for a three-test project, holding everything the test host
+        // had in memory, environment variables included. Nothing here reads dumps; the hung test
+        // is found from the Sequence file and the TRX, which are written all the same.
+        args.Add("--blame-hang-dump-type");
+        args.Add("none");
 
         // VSTest has no wildcard: `*` would be matched literally and select zero tests,
         // so "run everything" means passing no filter at all. Anything else goes through
@@ -268,6 +278,11 @@ public class ProcessRunner : IProcessRunner
         { Total: 0 } => TestRunOutcome.NoTestsMatched,
         _ => TestRunOutcome.Success
     };
+
+    // ponytail: only the default obj/ location; a project that moves it (BaseIntermediateOutputPath,
+    // UseArtifactsOutput) counts as unrestored and gets a quick no-op restore on every run.
+    internal static bool IsRestored(string testProjectPath) =>
+        File.Exists(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(testProjectPath))!, "obj", "project.assets.json"));
 
     private static string[] FilesIn(string dir, string pattern) =>
         Directory.Exists(dir) ? Directory.GetFiles(dir, pattern, SearchOption.AllDirectories) : [];

@@ -96,6 +96,10 @@ public class CoverageTools
             return JsonHelper.Error("fileNotFound", $"Test project not found: {testProjectPath}");
 
         workingDir ??= Path.GetDirectoryName(testProjectPath) ?? Directory.GetCurrentDirectory();
+        // Process.Start throws on a missing working directory, which reached the agent as the
+        // SDK's generic "An error occurred invoking ..." with nothing to act on.
+        if (!Directory.Exists(workingDir))
+            return JsonHelper.Error("fileNotFound", $"workingDir not found: {workingDir}");
 
         // includeClass is a coverlet runsettings filter; Microsoft's extension used under MTP
         // has a different settings format, so refuse rather than silently ignore it.
@@ -113,8 +117,17 @@ public class CoverageTools
         var steps = progress == null ? null : new StepProgress(progress);
         steps?.Report($"Starting dotnet test for {Path.GetFileName(testProjectPath)}");
 
-        var testResult = await _processRunner.RunDotnetTestAsync(
-            testProjectPath, filter, resultsDir, workingDir, forceRestore, includeClass, steps, cancellationToken);
+        TestRunResult testResult;
+        try
+        {
+            testResult = await _processRunner.RunDotnetTestAsync(
+                testProjectPath, filter, resultsDir, workingDir, forceRestore, includeClass, steps, cancellationToken);
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            return JsonHelper.Error("dotnetNotFound",
+                $"Could not start dotnet: {ex.Message}. Install the .NET SDK and make sure `dotnet` is on PATH for the process that starts this server.");
+        }
 
         switch (testResult.Outcome)
         {
@@ -171,7 +184,14 @@ public class CoverageTools
         }
 
         if (testResult.CoverageXmlPath == null)
-            return JsonHelper.Error("noCoverage", "No coverage XML found.\n" + Tail(testResult.Output));
+        {
+            var tail = Tail(testResult.Output);
+            return JsonHelper.Error("noCoverage",
+                "No coverage XML found: dotnet test finished without writing a coverage report. Check that the project is a " +
+                "test project with a coverage collector (coverlet.collector on VSTest, Microsoft.Testing.Extensions.CodeCoverage " +
+                "on Microsoft.Testing.Platform); get_test_environment reports what is missing." +
+                (tail.Length > 0 ? $"\nOutput (tail): {tail}" : ""));
+        }
 
         _sessionManager.SaveCoverageState(workingDir, testResult.CoverageXmlPath, stateKey, sessionId);
 
@@ -506,7 +526,7 @@ public class CoverageTools
         {
             return JsonHelper.Serialize(TestEnvironmentDetector.Detect(testProjectPath));
         }
-        catch (System.Xml.XmlException ex)
+        catch (Exception ex) when (ex is System.Xml.XmlException or IOException or UnauthorizedAccessException)
         {
             return JsonHelper.Error("parseFailed", $"Could not read the project file: {ex.Message}");
         }
