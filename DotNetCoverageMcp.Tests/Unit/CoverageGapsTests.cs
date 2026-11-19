@@ -228,4 +228,26 @@ public class CoverageGapsTests : IDisposable
         JsonDocument.Parse(tools.GetCoverageGaps(report, _dir, targetRate: 80)).RootElement
             .GetProperty("errorType").GetString().Should().Be("invalidParameter");
     }
+
+    [Fact]
+    public void Tool_CapsMaxFilesAndMaxMethodsPerFile()
+    {
+        // An unbounded maxFiles (1000) with source on could fill the agent's context.
+        File.WriteAllText(Path.Combine(_dir, "A.cs"), "public class A { public int M() => 1; }");
+        var report = Report(Class("App.A", "A.cs", Method("M", "1:0")));
+        var sessions = new Mock<ISessionManager>();
+        sessions.Setup(s => s.ResolveCoberturaPath(report, null)).Returns(report);
+        var cobertura = new Mock<ICoberturaService>();
+        cobertura.Setup(c => c.GetCoverageGaps(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<double>(),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool>()))
+            .Returns(new CoverageGapsResult(0.8, 1, 0, 0, [], [], [], []));
+        var tools = new CoverageTools(Mock.Of<IProcessRunner>(), sessions.Object,
+            new FileService(NullLogger<FileService>.Instance), cobertura.Object, Mock.Of<ICodeInserter>(), Mock.Of<IPathGuard>());
+
+        tools.GetCoverageGaps(report, _dir, maxFiles: 1000, maxMethodsPerFile: 500);
+        tools.GetCoverageGaps(report, _dir, maxFiles: 3, maxMethodsPerFile: 7);
+
+        cobertura.Verify(c => c.GetCoverageGaps(report, It.IsAny<IReadOnlyList<string>>(), 0.8, 20, 20, true), Times.Once);
+        cobertura.Verify(c => c.GetCoverageGaps(report, It.IsAny<IReadOnlyList<string>>(), 0.8, 3, 7, true), Times.Once);
+    }
 }

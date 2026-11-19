@@ -432,9 +432,9 @@ public class CoverageTools
         string path,
         [Description("Target per file as a fraction in [0.0, 1.0], applied to both line and branch coverage. Pass 0.8, not 80. Default 0.8.")]
         double targetRate = 0.8,
-        [Description("Number of below-target files returned in detail, smallest gap first. The others are listed with their rates only. Default 5.")]
+        [Description("Number of below-target files returned in detail, smallest gap first. The others are listed with their rates only. Default 5, at most 20.")]
         int maxFiles = 5,
-        [Description("Maximum methods returned per file. Default 5.")]
+        [Description("Maximum methods returned per file. Default 5, at most 20.")]
         int maxMethodsPerFile = 5,
         [Description("Include the source lines around each gap (2 lines of context, at most 30 lines per method). Default true.")]
         bool includeSource = true,
@@ -445,6 +445,11 @@ public class CoverageTools
             return JsonHelper.Error("invalidParameter", "targetRate must be between 0.0 and 1.0.");
         if (maxFiles < 1 || maxMethodsPerFile < 1)
             return JsonHelper.Error("invalidParameter", "maxFiles and maxMethodsPerFile must be at least 1.");
+        // Each detailed file carries up to maxMethodsPerFile methods with up to 30 source lines
+        // each, so an unbounded request (maxFiles: 1000) could fill the agent's context. Files
+        // past the cap are still listed, with their rates, under moreRemaining.
+        maxFiles = Math.Min(maxFiles, MaxGapsPerCall);
+        maxMethodsPerFile = Math.Min(maxMethodsPerFile, MaxGapsPerCall);
 
         try { _pathGuard.Validate(coberturaXmlPath, nameof(coberturaXmlPath)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
@@ -504,6 +509,8 @@ public class CoverageTools
             return JsonHelper.Error("parseFailed", $"Could not read the project file: {ex.Message}");
         }
     }
+
+    private const int MaxGapsPerCall = 20;
 
     // --- 6d. DescribeTestTarget ---
 
