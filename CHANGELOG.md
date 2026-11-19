@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.7] - 2026-11-20
+
 ### Fixed
 - `CleanupSession` without a `sessionId` deleted any folder in `workingDir` whose name
   started with `TestResults-` or `coveragereport-` and was older than `maxAgeMinutes`, so
