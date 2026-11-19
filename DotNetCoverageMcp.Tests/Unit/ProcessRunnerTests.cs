@@ -111,7 +111,11 @@ public class ProcessRunnerTests
         { 0, Summary(0, 0, 0), TestRunOutcome.NoTestsMatched },    // dotnet test exits 0 here
         { 1, Summary(3, 2, 1), TestRunOutcome.TestsFailed },
         { 0, Summary(3, 3, 0), TestRunOutcome.Success },
-        { 1, Summary(3, 3, 0), TestRunOutcome.TestsFailed },       // aborted run, e.g. hang timeout
+        // A test crashed or hung the host. Real runs: a hang left 3 passed and exit 1, a crash
+        // before any result total="0" and exit 1; both were misread as testsFailed / no tests.
+        { 1, Summary(3, 3, 0), TestRunOutcome.Aborted },
+        { 1, Summary(0, 0, 0), TestRunOutcome.Aborted },
+        { 1, Summary(4, 3, 1), TestRunOutcome.TestsFailed },       // a failed test is reported first
     };
 
     [Theory]
@@ -153,6 +157,11 @@ public class ProcessRunnerTests
         { 0, Summary(3, 3, 0), TestRunOutcome.Success },
         { 0, null, TestRunOutcome.Success },
         { 1, null, TestRunOutcome.BuildError },
+        { 7, Summary(0, 0, 0), TestRunOutcome.Aborted },           // host crashed (real run: "error: 1, total: 0")
+        { 7, null, TestRunOutcome.Aborted },
+        { 3, null, TestRunOutcome.Aborted },                       // session aborted
+        { 7, Summary(2, 1, 1), TestRunOutcome.TestsFailed },
+        { 1, Summary(3, 3, 0), TestRunOutcome.Aborted },
     };
 
     [Theory]

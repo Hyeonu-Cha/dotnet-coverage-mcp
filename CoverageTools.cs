@@ -138,6 +138,8 @@ public class CoverageTools
                 // Microsoft.Testing.Platform rejects an option whose extension the test project
                 // doesn't reference, and its message names the package to add.
                 return JsonHelper.Error("missingExtension", MissingExtensionDetail(testResult.Output, testResult.Error));
+            case TestRunOutcome.Aborted:
+                return AbortedRun(testResult);
         }
 
         // The filter keys a state file; "run all" gets one stable key however it was spelled.
@@ -825,6 +827,31 @@ public class CoverageTools
     // MSBuild prints each compiler error twice (inline and in the summary), each with the
     // project path appended. Return each error once, without the suffix; fall back to the
     // output tail when the failure has no `error` lines (e.g. the SDK itself failed).
+    // A test that crashes or hangs the test host stops the whole run. The agent needs the crash
+    // and the likely test, not "no tests" or "0 of N tests failed", which is what it got before. The
+    // coverage of a run that stopped part-way is not offered: gaps judged on half a run would
+    // send the agent after code the rest of the suite covers.
+    private static string AbortedRun(TestRunResult run)
+    {
+        var abort = run.Abort;
+        var recorded = run.Summary is { Total: > 0 } s ? $" {s.Passed} of {s.Total} recorded tests had passed." : "";
+        return JsonHelper.Serialize(new
+        {
+            error = $"The test run stopped before it finished (exit code {run.ExitCode}) although no test failed: " +
+                    $"a test crashed or hung the test host, or the host could not start.{recorded}",
+            errorType = "testRunAborted",
+            reasons = abort?.Reasons,
+            unfinishedTests = abort is { UnfinishedTests.Count: > 0 } ? abort.UnfinishedTests : null,
+            crash = abort?.Crash,
+            hint = "The crash frames, when present, show where the test host died. Otherwise the cause is among " +
+                   "unfinishedTests, the tests that had started but not finished (tests running in parallel are listed " +
+                   "too). Fix it (an infinite loop or deadlock, Environment.Exit or FailFast, unbounded recursion) and " +
+                   "run again; this run's coverage is incomplete, so it is not used. " +
+                   $"On VSTest a test still running after {ProcessRunner.HangTimeoutSeconds} s counts as hung: if it legitimately " +
+                   "takes longer, raise COVERAGE_MCP_HANG_TIMEOUT_SECONDS."
+        });
+    }
+
     internal static string BuildErrorDetail(string output, string error)
     {
         var errors = $"{output}\n{error}".Split('\n')

@@ -113,7 +113,8 @@ If not a .NET test context, explain your specialization and suggest general assi
 
 1. If `RunTestsWithCoverage` returns a **build error** after writing tests, use Edit to fix the syntax error in the test file — do NOT use `AppendTestCode` to fix it. If the same test fails 3 times, remove it and move on. `projectBusy` is not a build error in your code: another build or test host held the output files, so run again without editing anything
 2. If `RunTestsWithCoverage` returns **testsFailed**, an assertion failed: fix the test named in `failures` (message and stack are included). Coverage from the passing tests is still available at `coberturaXmlPath`
-3. If `GetUncoveredBranches` returns no results, try a shorter partial method name
-4. If coverage doesn't improve after writing a test, check that the mock setup matches the branch condition
-5. For complex branches (async, private, static), note them as blocked after reasonable attempts
-6. If tempted to check coverage after one test: resist it. Batch 3–5 tests first
+3. If `RunTestsWithCoverage` returns **testRunAborted**, a test crashed or hung the test host: fix the test that `crash` points at (or, without it, one of `unfinishedTests`) and run again. Do not use that run's coverage
+4. If `GetUncoveredBranches` returns no results, try a shorter partial method name
+5. If coverage doesn't improve after writing a test, check that the mock setup matches the branch condition
+6. For complex branches (async, private, static), note them as blocked after reasonable attempts
+7. If tempted to check coverage after one test: resist it. Batch 3–5 tests first

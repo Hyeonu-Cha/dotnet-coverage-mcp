@@ -161,6 +161,29 @@ public class CoverageToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task RunTestsWithCoverage_Aborted_ReportsTheCrashAndOffersNoCoverage()
+    {
+        var abort = new TestRunAbort(["The active test run was aborted. Reason: Test host process crashed"],
+            ["CrashTests.HangsForever"], null);
+        SetupTestRun(new TestRunResult(TestRunOutcome.Aborted, "", "", 1, "/coverage.xml",
+            new TestSummary(3, 3, 0, 0, []), abort));
+
+        var result = await _sut.RunTestsWithCoverage(_proj, null, "/dir");
+
+        AssertError(result, "testRunAborted");
+        using var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+        root.GetProperty("error").GetString().Should().Contain("3 of 3 recorded tests had passed");
+        root.GetProperty("reasons")[0].GetString().Should().Contain("Test host process crashed");
+        root.GetProperty("unfinishedTests")[0].GetString().Should().Be("CrashTests.HangsForever");
+        root.GetProperty("hint").GetString().Should().Contain("COVERAGE_MCP_HANG_TIMEOUT_SECONDS");
+        // Half a run's coverage would make the rest of the suite's code look untested.
+        root.TryGetProperty("coberturaXmlPath", out _).Should().BeFalse();
+        _sessionManager.Verify(s => s.SaveCoverageState(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
     public async Task RunTestsWithCoverage_NoTestsMatched_ReturnsErrorNamingFilter()
     {
         SetupTestRun(new TestRunResult(TestRunOutcome.NoTestsMatched, "", "", 0, "/coverage.xml", new TestSummary(0, 0, 0, 0, [])));

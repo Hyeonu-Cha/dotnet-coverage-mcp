@@ -80,6 +80,30 @@ public class DotnetTestFailureEndToEndTests : IClassFixture<SampleProjectFixture
         doc.RootElement.GetProperty("error").GetString().Should().MatchRegex(@"Broken\.cs\(1,\d+\): error CS\d+");
     }
 
+    [Fact]
+    public async Task TestCrashingTheHost_ReturnsTestRunAbortedWithTheCrash()
+    {
+        // Regression: a crash before any result left total="0" in the TRX and was reported as
+        // "The test project contains no tests".
+        using var crashTests = AddTestFile("CrashTests.cs", """
+            namespace SampleLib.Tests;
+            public class CrashTests
+            {
+                [Fact]
+                public void CrashesTheTestHost() => Environment.FailFast("simulated crash in a test");
+            }
+            """);
+
+        var result = await _sut.RunTestsWithCoverage(_fixture.TestProjectPath);
+
+        using var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+        root.GetProperty("errorType").GetString().Should().Be("testRunAborted", because: result);
+        root.GetProperty("reasons").GetArrayLength().Should().BeGreaterThan(0, result);
+        root.GetProperty("crash").GetString().Should().Contain("simulated crash in a test").And.Contain("CrashesTheTestHost");
+        root.TryGetProperty("coberturaXmlPath", out _).Should().BeFalse("a run that stopped part-way has incomplete coverage");
+    }
+
     private TempFile AddTestFile(string name, string content) =>
         new(Path.Combine(Path.GetDirectoryName(_fixture.TestProjectPath)!, name), content);
 
