@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotNetCoverageMcp.Helpers;
 using DotNetCoverageMcp.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -159,6 +160,36 @@ public class CoverageGapsTests : IDisposable
 
         source.Should().Contain("5:         if (n < 0) return \"bad\";");
         source!.Split('\n').Should().HaveCount(5, "two lines either side of line 5");
+    }
+
+    [Fact]
+    public void SourceEditedAfterTheRun_IsFlagged_AndItsSourceLeftOut()
+    {
+        // Regression: the report's line numbers were applied to the file as it is now, so after
+        // an edit the "uncovered" lines and the source around them pointed at other code.
+        var edited = Path.Combine(_dir, "Edited.cs");
+        var untouched = Path.Combine(_dir, "Untouched.cs");
+        foreach (var p in new[] { edited, untouched })
+            File.WriteAllLines(p, ["public class X", "{", "    public int M(int n)", "    {", "        if (n < 0) return 0;", "        return n;", "    }", "}"]);
+        var report = Report(
+            Class("App.Edited", "Edited.cs", Method("M", "4:1 5:1 6:0 7:1", branches: "5:1/2")) +
+            Class("App.Untouched", "Untouched.cs", Method("M", "4:1 5:1 6:0 7:1", branches: "5:1/2")));
+        File.SetLastWriteTimeUtc(report, DateTime.UtcNow.AddMinutes(-5));
+        File.SetLastWriteTimeUtc(untouched, DateTime.UtcNow.AddMinutes(-10));
+        File.SetLastWriteTimeUtc(edited, DateTime.UtcNow);
+
+        var files = _sut.GetCoverageGaps(report, [edited, untouched], 0.8, 5, 5, includeSource: true).Remaining;
+
+        var e = files.Single(f => f.File.EndsWith("Edited.cs", StringComparison.Ordinal));
+        e.SourceChangedSinceRun.Should().BeTrue();
+        e.Methods.Should().OnlyContain(m => m.Source == null);
+        var u = files.Single(f => f.File.EndsWith("Untouched.cs", StringComparison.Ordinal));
+        u.SourceChangedSinceRun.Should().BeFalse();
+        u.Methods.Should().Contain(m => m.Source != null);
+
+        // Only a flagged file carries the property, so the usual response stays as short as before.
+        JsonHelper.Serialize(u).Should().NotContain("sourceChangedSinceRun");
+        JsonHelper.Serialize(e).Should().Contain("\"sourceChangedSinceRun\":true");
     }
 
     [Theory]

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Text.Json.Serialization;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using DotNetCoverageMcp.Helpers;
@@ -40,7 +41,8 @@ public record CoverageGapsResult(
     List<FileGap> Remaining, List<FileRates> MoreRemaining, List<string> Done, List<string> NotInReport);
 public record FileGap(
     string File, double LineRate, double BranchRate, int LinesToCover, int BranchesToCover, bool ClosesGap,
-    List<MethodGap> Methods);
+    List<MethodGap> Methods,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool SourceChangedSinceRun = false);
 public record MethodGap(
     string Method, string Class, double LineRate, double BranchRate, string? UncoveredLines,
     List<UncoveredBranch> UncoveredBranches, string? Source);
@@ -312,12 +314,17 @@ public class CoberturaService : ICoberturaService
         // Smallest gaps first: they finish in one cycle and leave the rest of the batch shorter.
         var ordered = below.OrderBy(b => b.LinesToCover + b.BranchesToCover).ThenBy(b => b.ReportFile).ToList();
 
+        // The report's line numbers describe each file as it was when the tests ran. A file edited
+        // since then (a seam added for testing, say) would show the wrong lines as uncovered, so it
+        // is flagged and its source left out until the tests run again.
+        var reportWrittenUtc = File.GetLastWriteTimeUtc(coberturaXmlPath);
         var detailed = ordered.Take(maxFiles).Select(b =>
         {
+            var changed = File.Exists(b.SourcePath) && File.GetLastWriteTimeUtc(b.SourcePath) > reportWrittenUtc;
             var (methods, closes) = PickMethods(b.Classes, b.LinesToCover, b.BranchesToCover, maxMethodsPerFile,
-                includeSource ? ReadLines(b.SourcePath) : null);
+                includeSource && !changed ? ReadLines(b.SourcePath) : null);
             return new FileGap(b.ReportFile, Math.Round(b.Line, 4), Math.Round(b.Branch, 4),
-                b.LinesToCover, b.BranchesToCover, closes, methods);
+                b.LinesToCover, b.BranchesToCover, closes, methods, changed);
         }).ToList();
 
         var more = ordered.Skip(maxFiles).Take(MaxFileList)
