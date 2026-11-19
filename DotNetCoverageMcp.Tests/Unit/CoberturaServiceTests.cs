@@ -25,6 +25,73 @@ public class CoberturaServiceTests : IDisposable
             Directory.Delete(_tempDir, true);
     }
 
+    // --- Untrusted input (SECURITY.md lists coverage XML as such) ---
+
+    [Fact]
+    public void Load_DoesNotExpandTheDocumentsOwnEntities()
+    {
+        // Regression: a 700-byte report whose class name expanded through nested entities came
+        // back as a million-character response.
+        var entities = string.Join(" ", new[] { $"<!ENTITY e0 \"{new string('A', 100)}\">" }
+            .Concat(Enumerable.Range(1, 4).Select(i => $"<!ENTITY e{i} \"{string.Concat(Enumerable.Repeat($"&e{i - 1};", 10))}\">")));
+        var path = WriteCoberturaXml($"""
+            <?xml version="1.0"?>
+            <!DOCTYPE coverage [ {entities} ]>
+            <coverage line-rate="1" branch-rate="1"><packages><package><classes>
+              <class name="&e4;" filename="x.cs" line-rate="1" branch-rate="1"><methods /><lines /></class>
+            </classes></package></packages></coverage>
+            """);
+
+        var act = () => _sut.SummarizeClasses(path);
+
+        act.Should().Throw<System.Xml.XmlException>().WithMessage("*undeclared entity*");
+    }
+
+    [Fact]
+    public void Load_ReportWithCoberturasOwnDoctype_StillLoads_WithoutFetchingIt()
+    {
+        // Java Cobertura and some converters emit this DOCTYPE; it is skipped, never downloaded.
+        var path = WriteCoberturaXml("""
+            <?xml version="1.0"?>
+            <!DOCTYPE coverage SYSTEM "http://cobertura.sourceforge.net/xml/coverage-04.dtd">
+            <coverage line-rate="1" branch-rate="1"><packages><package><classes>
+              <class name="App.Foo" filename="Foo.cs" line-rate="1" branch-rate="1"><methods /><lines /></class>
+            </classes></package></packages></coverage>
+            """);
+
+        _sut.SummarizeClasses(path).Should().ContainSingle(c => c.Class == "App.Foo");
+    }
+
+    [Fact]
+    public void Load_XmlThatIsNotACoverageReport_IsRejected()
+    {
+        var path = WriteCoberturaXml("<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup /></Project>");
+
+        var act = () => _sut.SummarizeClasses(path);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*root element is <Project>*");
+    }
+
+    [Fact]
+    public void GetCoverageDiff_FirstCallWithANonCoverageFile_FailsAndWritesNoBaseline()
+    {
+        // Regression: the first call copied any file (a .txt holding a token, in the review)
+        // into .mcp-coverage/.coverage-prev.xml and answered firstRun.
+        var secret = Path.Combine(_tempDir, "secret.txt");
+        File.WriteAllText(secret, "TOP-SECRET-TOKEN=abc123");
+        var fileService = new FileService(Microsoft.Extensions.Logging.Abstractions.NullLogger<FileService>.Instance);
+        var guard = new Mock<IPathGuard>();
+        guard.Setup(g => g.IsWithinAllowedRoot(It.IsAny<string>())).Returns(true);
+        var tools = new CoverageTools(Mock.Of<IProcessRunner>(),
+            new SessionManager(fileService, guard.Object, Microsoft.Extensions.Logging.Abstractions.NullLogger<SessionManager>.Instance),
+            fileService, _sut, Mock.Of<ICodeInserter>(), guard.Object);
+
+        var result = tools.GetCoverageDiff(secret, _tempDir);
+
+        result.Should().Contain("\"errorType\":\"parseFailed\"");
+        File.Exists(Path.Combine(_tempDir, ".mcp-coverage", ".coverage-prev.xml")).Should().BeFalse();
+    }
+
     // --- SummarizeClasses ---
 
     [Fact]

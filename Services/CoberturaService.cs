@@ -109,7 +109,7 @@ public class CoberturaService : ICoberturaService
             && hit.WriteTime == info.LastWriteTimeUtc && hit.Length == info.Length)
             return hit.Model;
 
-        var model = CoverageModel.Parse(XDocument.Load(coberturaXmlPath));
+        var model = CoverageModel.Parse(XmlFile.Load(coberturaXmlPath));
         // ponytail: clear-all eviction; a run's working set is two reports (current + baseline).
         if (_cache.Count >= MaxCachedReports) _cache.Clear();
         _cache[info.FullName] = (info.LastWriteTimeUtc, info.Length, model);

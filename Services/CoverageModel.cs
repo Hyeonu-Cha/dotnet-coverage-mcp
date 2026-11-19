@@ -42,6 +42,13 @@ internal sealed record CoverageModel(IReadOnlyList<string> SourceRoots, double L
 
     public static CoverageModel Parse(XDocument doc)
     {
+        // Any well-formed XML used to "parse" as an empty report, so get_coverage_diff took
+        // whatever it was given as its baseline. Cobertura's root is <coverage> (coverlet and
+        // Microsoft's CodeCoverage alike).
+        if (doc.Root?.Name.LocalName != "coverage")
+            throw new InvalidDataException(
+                $"Not a Cobertura coverage report: the root element is <{doc.Root?.Name.LocalName}>, not <coverage>.");
+
         var roots = doc.Descendants("source").Select(s => s.Value.Trim().Replace('\\', '/').TrimEnd('/'))
             .Where(s => s.Length > 0).ToList();
 

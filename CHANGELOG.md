@@ -31,6 +31,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when the test host is killed mid-write is skipped instead of throwing, and
   `GetTestEnvironment` reports an unreadable project file as `parseFailed` for I/O and access
   errors too, not only malformed XML.
+- `AppendTestCode` silently dropped code after a stray `}`: the brace closed the class early,
+  what followed parsed as another top-level declaration, and the insert reported success with
+  only the code before it. Such code is now rejected with `syntaxError`.
+- `GetCoverageDiff`'s first call copied whatever file it was given, a `.txt` included, into
+  `.mcp-coverage/.coverage-prev.xml` and answered `firstRun`. The report is now parsed before it
+  becomes the baseline, and every coverage tool rejects XML whose root is not `<coverage>`
+  instead of reading it as an empty report.
+
+### Security
+- Coverage reports, TRX files, Blame sequence files and project files were loaded with
+  DOCTYPE processing on, so a document's own entities expanded: a 696-byte coverage report
+  produced a 1,000,063-character `get_coverage_summary` response. DOCTYPEs are now ignored
+  (external entities were never resolved); a report carrying Cobertura's standard DOCTYPE
+  still loads.
 
 ## [2.0.6] - 2026-11-19
 

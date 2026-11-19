@@ -386,6 +386,9 @@ public class CoverageTools
         {
             if (!File.Exists(prevPath))
             {
+                // Parsed before it becomes the baseline: the first call used to copy any file at
+                // all (a .txt included) into .mcp-coverage and answer firstRun.
+                _coberturaService.SummarizeClasses(resolvedPath);
                 _fileService.AtomicCopyFile(resolvedPath, prevPath);
                 return JsonHelper.Serialize(new { firstRun = true });
             }

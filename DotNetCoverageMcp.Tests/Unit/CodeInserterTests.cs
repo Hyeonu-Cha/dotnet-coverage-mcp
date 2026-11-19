@@ -450,6 +450,9 @@ public class Second { public void Existing() { } }";
     [InlineData("namespace N { public class C { } }")]                  // namespace is not a member
     [InlineData("if (true) { return; }")]                               // a statement, not a member
     [InlineData("// only a comment")]                                   // nothing to insert
+    // A stray '}' closes the wrapper early; the class after it used to vanish while the insert
+    // reported success (reproduced against 2.0.6).
+    [InlineData("[Fact]\npublic void Kept() { }\n}\npublic class Smuggled\n{\n    public void Hidden() { }")]
     public async Task InsertCodeAsync_InvalidCode_ThrowsAndLeavesFileUntouched(string code)
     {
         // Regression: Roslyn rejected these, then the string fallback wrote them anyway.

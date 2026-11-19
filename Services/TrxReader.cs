@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using DotNetCoverageMcp.Helpers;
 
 namespace DotNetCoverageMcp.Services;
 
@@ -135,7 +136,7 @@ public static class TrxReader
     {
         try
         {
-            return XDocument.Load(sequencePath).Descendants("Test")
+            return XmlFile.Load(sequencePath).Descendants("Test")
                 .Where(t => (string?)t.Attribute("Completed") == "False")
                 .Select(t => (string?)t.Attribute("Name") ?? "")
                 .Where(n => n.Length > 0)
@@ -174,7 +175,7 @@ public static class TrxReader
     // let the XmlException fail the whole tool call with the SDK's generic error.
     private static XDocument? TryLoad(string path)
     {
-        try { return XDocument.Load(path); }
+        try { return XmlFile.Load(path); }
         catch (Exception ex) when (ex is System.Xml.XmlException or IOException or UnauthorizedAccessException) { return null; }
     }
 

@@ -231,7 +231,13 @@ public class CodeInserter : ICodeInserter
         var error = tree.GetDiagnostics().FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error);
         if (error == null)
         {
-            var members = tree.GetCompilationUnitRoot().DescendantNodes().OfType<TypeDeclarationSyntax>().First().Members;
+            // A stray '}' closes the wrapper early. What follows then parses as another top-level
+            // declaration, which the insert dropped while reporting success.
+            var root = tree.GetCompilationUnitRoot();
+            if (root.Members.Count != 1)
+                return "codeToAppend has a '}' that closes the class early, so the code after it would be lost. " +
+                       "Pass members only, with balanced braces.";
+            var members = root.DescendantNodes().OfType<TypeDeclarationSyntax>().First().Members;
             return members.Count == 0 ? "codeToAppend contains no member declarations." : null;
         }
 
