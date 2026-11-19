@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
 namespace DotNetCoverageMcp.Services;
@@ -122,6 +123,15 @@ public class SessionManager : ISessionManager
         _fileService.AtomicWriteFile(Path.Combine(stateDir, ".coverage-state"), xmlPath);
     }
 
+    // Exactly the folder names this tool creates: TestResults-mcp for single-agent runs, and
+    // TestResults-<key> / coveragereport-<key> (the latter left by versions before 2.0.1), where
+    // <key> is ComputeKey's 8 lowercase hex characters. A prefix match also took folders such as
+    // TestResults-ci-history or coveragereport-html that the user's own scripts write, and the
+    // sweep deleted them. The bare TestResults/coveragereport names, which dotnet test, Visual
+    // Studio and a hand-run reportgenerator use, never match either.
+    private static readonly Regex OwnedArtifactDir =
+        new(@"^(?:TestResults-(?:mcp|[0-9a-f]{8})|coveragereport-[0-9a-f]{8})$", RegexOptions.Compiled);
+
     public int Cleanup(string workingDir, string? sessionId, int maxAgeMinutes)
     {
         var removed = 0;
@@ -155,8 +165,8 @@ public class SessionManager : ISessionManager
             // Only this session's own artifacts. The unsuffixed TestResults/coveragereport dirs
             // belong to a single-agent run or to another tool (dotnet test / Visual Studio write
             // TestResults by default) — deleting them here would wipe data this session doesn't
-            // own. Nothing in Cleanup touches the bare names; the sweep below only takes
-            // hyphen-suffixed ones such as TestResults-mcp.
+            // own. Nothing in Cleanup touches the bare names; the sweep below only takes the
+            // names this tool creates (OwnedArtifactDir).
             _fileService.SafeDelete(Path.Combine(workingDir, $"TestResults-{key}"));
             _fileService.SafeDelete(Path.Combine(workingDir, $"coveragereport-{key}"));
         }
@@ -194,15 +204,8 @@ public class SessionManager : ISessionManager
                 foreach (var dir in Directory.GetDirectories(workingDir))
                 {
                     var dirName = Path.GetFileName(dir);
-                    // Only hyphen-suffixed names: TestResults-mcp (single-agent runs) and
-                    // TestResults-<key>, plus coveragereport-<key> left by versions before 2.0.1.
-                    // The bare TestResults/coveragereport names belong to dotnet test, Visual
-                    // Studio or a hand-run reportgenerator, and a bare prefix match would also
-                    // catch user dirs like TestResultsBackup.
-                    var isArtifactDir =
-                        dirName.StartsWith("TestResults-", StringComparison.Ordinal)
-                        || dirName.StartsWith("coveragereport-", StringComparison.Ordinal);
-                    if (isArtifactDir && (dirName == "TestResults-mcp" || Directory.GetLastWriteTimeUtc(dir) < cutoff))
+                    if (OwnedArtifactDir.IsMatch(dirName)
+                        && (dirName == "TestResults-mcp" || Directory.GetLastWriteTimeUtc(dir) < cutoff))
                     {
                         _fileService.SafeDelete(dir);
                         removed++;

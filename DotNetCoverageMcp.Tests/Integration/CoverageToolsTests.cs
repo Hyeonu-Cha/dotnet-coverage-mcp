@@ -534,6 +534,14 @@ public class CoverageToolsTests : IDisposable
         doc.RootElement.GetProperty("removed").GetInt32().Should().Be(3);
     }
 
+    [Fact]
+    public void CleanupSession_NegativeMaxAge_IsRejected_AndDeletesNothing()
+    {
+        // A negative age would date the cutoff in the future and sweep every session's artifacts.
+        AssertError(_sut.CleanupSession("/dir", null, -5), "invalidParameter");
+        _sessionManager.Verify(s => s.Cleanup(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<int>()), Times.Never);
+    }
+
     // --- GetCoverageDiff workingDir resolution ---
 
     [Fact]

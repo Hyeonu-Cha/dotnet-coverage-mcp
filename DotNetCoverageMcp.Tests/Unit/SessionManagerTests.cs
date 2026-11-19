@@ -244,30 +244,32 @@ public class SessionManagerTests : IDisposable
     [Fact]
     public void Cleanup_AgeSweep_RemovesStaleToolDirs_NeverTheUsersOwn()
     {
-        // Single-agent runs write TestResults-mcp; versions before 2.0.1 also left
-        // coveragereport-<key>. The sweep removes stale ones and leaves recent ones.
-        var staleResults = Path.Combine(_tempDir, "TestResults-mcp");
-        var staleReport = Path.Combine(_tempDir, "coveragereport-abc");
-        var freshResults = Path.Combine(_tempDir, "TestResults-fresh");
-        // dotnet test / Visual Studio write the bare TestResults, a hand-run reportgenerator
-        // often coveragereport, and TestResultsBackup merely shares the prefix: never swept.
-        var usersResults = Path.Combine(_tempDir, "TestResults");
-        var usersReport = Path.Combine(_tempDir, "coveragereport");
-        var userBackup = Path.Combine(_tempDir, "TestResultsBackup");
-        foreach (var d in new[] { staleResults, staleReport, freshResults, usersResults, usersReport, userBackup })
+        // The tool writes TestResults-mcp, TestResults-<key> and (before 2.0.1) coveragereport-<key>,
+        // <key> being 8 lowercase hex characters. The sweep removes stale ones, keeps recent ones.
+        var singleAgent = Path.Combine(_tempDir, "TestResults-mcp");
+        var staleSession = Path.Combine(_tempDir, $"TestResults-{_sut.ComputeKey("old-agent")}");
+        var staleReport = Path.Combine(_tempDir, $"coveragereport-{_sut.ComputeKey("old-agent")}");
+        var freshSession = Path.Combine(_tempDir, $"TestResults-{_sut.ComputeKey("busy-agent")}");
+        // Everything else is the user's, however old: the bare names dotnet test, Visual Studio and
+        // reportgenerator use, and names that merely share the prefix. Regression: the sweep matched
+        // on "TestResults-" / "coveragereport-" and deleted folders like the last two.
+        string[] users = ["TestResults", "coveragereport", "TestResultsBackup", "TestResults-ci-history",
+            "coveragereport-html", "TestResults-ABCDEF12", "TestResults-0123456789"];
+        var userDirs = users.Select(u => Path.Combine(_tempDir, u)).ToList();
+        foreach (var d in userDirs.Append(singleAgent).Append(staleSession).Append(staleReport).Append(freshSession))
             Directory.CreateDirectory(d);
-        foreach (var d in new[] { staleResults, staleReport, usersResults, usersReport, userBackup })
+        foreach (var d in userDirs.Append(staleSession).Append(staleReport))
             Directory.SetLastWriteTimeUtc(d, DateTime.UtcNow.AddMinutes(-200));
-        // freshResults keeps its just-created timestamp.
+        // singleAgent and freshSession keep their just-created timestamps.
 
         _sut.Cleanup(_tempDir, null, 120);
 
-        _fileService.Verify(f => f.SafeDelete(staleResults), Times.Once);
+        _fileService.Verify(f => f.SafeDelete(singleAgent), Times.Once);
+        _fileService.Verify(f => f.SafeDelete(staleSession), Times.Once);
         _fileService.Verify(f => f.SafeDelete(staleReport), Times.Once);
-        _fileService.Verify(f => f.SafeDelete(freshResults), Times.Never);
-        _fileService.Verify(f => f.SafeDelete(usersResults), Times.Never);
-        _fileService.Verify(f => f.SafeDelete(usersReport), Times.Never);
-        _fileService.Verify(f => f.SafeDelete(userBackup), Times.Never);
+        _fileService.Verify(f => f.SafeDelete(freshSession), Times.Never);
+        foreach (var d in userDirs)
+            _fileService.Verify(f => f.SafeDelete(d), Times.Never, Path.GetFileName(d));
     }
 
     [Fact]
