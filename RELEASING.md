@@ -33,7 +33,7 @@ git push origin vX.Y.Z
 
 The package version is injected from the git tag via `-p:Version=` in the release workflow, so there is no `<Version>` element to edit in the csproj.
 
-The workflow builds, tests, packs, pushes the package to NuGet, and creates a GitHub Release with auto-generated notes. Its second job, `mcp-registry`, then waits for NuGet to index the version (usually 5–20 minutes) and publishes `server.json` to the [official MCP registry](https://registry.modelcontextprotocol.io), logging in with the workflow's GitHub OIDC token. Nothing to do by hand.
+The workflow builds, tests and packs, writes a CycloneDX SBOM, attests the package's build provenance and SBOM (see [SECURITY.md](SECURITY.md#verifying-a-release)), pushes the package to NuGet, and creates a GitHub Release with the `.nupkg`, the SBOM and auto-generated notes. Its second job, `mcp-registry`, then waits for NuGet to index the version (usually 5–20 minutes), installs it from nuget.org and runs the smoke test on it, and publishes `server.json` to the [official MCP registry](https://registry.modelcontextprotocol.io), logging in with the workflow's GitHub OIDC token. Nothing to do by hand.
 
 If that job fails (NuGet took over an hour, or the registry was down), use **Re-run failed jobs** on the run; it retries only the registry step.
 

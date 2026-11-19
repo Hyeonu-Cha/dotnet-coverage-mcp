@@ -55,6 +55,23 @@ Operators running dotnet-coverage-mcp in shared environments should:
 - Treat the `.mcp-coverage/` directory as untrusted state and add it to
   `.gitignore`.
 
+## Verifying a Release
+
+Releases after 2.0.3 carry the `.nupkg` and a CycloneDX SBOM
+(`dotnet-coverage-mcp.<version>.cdx.json`) listing every dependency the package ships.
+The release workflow attests both: a signed statement, kept by GitHub, that the package
+was built by `release.yml` from the tagged commit. To check a downloaded package
+(`<version>` without the `v`):
+
+```bash
+gh release download v<version> -R Hyeonu-Cha/dotnet-coverage-mcp -p '*.nupkg'
+gh attestation verify dotnet-coverage-mcp.<version>.nupkg --repo Hyeonu-Cha/dotnet-coverage-mcp
+```
+
+The attestation matches the GitHub Release file, not the copy nuget.org serves: nuget.org
+adds its own repository signature (`.signature.p7s`) to every package, which changes its
+bytes. For the nuget.org copy, `dotnet nuget verify` checks that signature.
+
 ## Out of Scope
 
 The following are **not** considered vulnerabilities:

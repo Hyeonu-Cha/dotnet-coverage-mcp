@@ -1,20 +1,30 @@
 #!/usr/bin/env bash
-# Packs the tool, installs it from the local package only, starts it over stdio,
-# and checks that tools/list returns every tool. Used by build.yml and release.yml.
+# Installs the tool, starts it over stdio, and checks that tools/list returns every tool.
+#   smoke-test.sh            packs this checkout and installs that package only (dotnet.yml, release.yml)
+#   smoke-test.sh <version>  installs <version> as published on nuget.org (release.yml, after the push)
 set -euo pipefail
 
 EXPECTED_TOOLS=11
 EXPECTED_READ_ONLY=7
-# A version that can never exist on nuget.org, so the install below cannot pick up
-# the published package instead of the one just built.
-VERSION=0.0.0-ci
 WORK=$(mktemp -d)
 
-dotnet pack DotNetCoverageMcp.csproj --configuration Release -p:IsPacking=true \
-  -p:Version="$VERSION" -o "$WORK/nupkg" --nologo
-
-dotnet tool install dotnet-coverage-mcp --tool-path "$WORK/tool" \
-  --source "$WORK/nupkg" --version "$VERSION"
+if [ $# -eq 0 ]; then
+  # A version that can never exist on nuget.org, so the install below cannot pick up
+  # the published package instead of the one just built.
+  VERSION=0.0.0-ci
+  dotnet pack DotNetCoverageMcp.csproj --configuration Release -p:IsPacking=true \
+    -p:Version="$VERSION" -o "$WORK/nupkg" --nologo
+  dotnet tool install dotnet-coverage-mcp --tool-path "$WORK/tool" \
+    --source "$WORK/nupkg" --version "$VERSION"
+else
+  VERSION=$1
+  # nuget.org can list a version shortly before every endpoint serves it, so retry.
+  for attempt in 1 2 3 4 5; do
+    dotnet tool install dotnet-coverage-mcp --tool-path "$WORK/tool" --version "$VERSION" && break
+    [ "$attempt" -lt 5 ] || { echo "Could not install $VERSION from nuget.org" >&2; exit 1; }
+    sleep 30
+  done
+fi
 
 request() {
   printf '%s\n' \
