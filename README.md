@@ -271,7 +271,7 @@ Returns a one-line `summary` (e.g. `xunit 2.9.3 on VSTest, coverlet.collector, M
 | `includeSource` | bool | No | Include the source lines around each gap (2 lines of context, at most 30 per method). Default `true`. |
 | `sessionId` | string | No | Resolves the session-scoped state file for concurrent isolation. |
 
-Methods are ranked by how many uncovered lines and branch outcomes they hold, counting only the metric that is still below target, and picked until the file's gap is closed (`closesGap`). Files in the scope with no coverage data are listed under `notInReport`.
+Methods are ranked by how many uncovered lines and branch outcomes they hold, counting only the metric that is still below target, and picked until the file's gap is closed (`closesGap`). Files in the scope with no coverage data are listed under `notInReport`. A file edited after the coverage run is marked `sourceChangedSinceRun: true` and its source left out, since the report's line numbers may no longer match it; run the tests again first.
 
 ### `GetUncoveredBranches`
 | Parameter | Type | Required | Description |

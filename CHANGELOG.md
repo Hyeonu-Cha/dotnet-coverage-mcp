@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `GetCoverageGaps` applied the report's line numbers to the source file as it is now. After
+  the file was edited (a seam added for testing, say), the uncovered lines and the source
+  shown around them pointed at other code, with no warning. A file changed since the
+  coverage run is now marked `sourceChangedSinceRun: true` and its source left out, so the
+  agent runs the tests again instead of writing tests for the wrong lines.
+
 ### Changed
 - The release build sets `ContinuousIntegrationBuild`, so the shipped PDB maps source paths
   to `/_/` instead of the build runner's folders and the package passes NuGet's
