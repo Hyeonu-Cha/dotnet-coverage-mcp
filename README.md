@@ -91,6 +91,13 @@ Without `sessionId`, tools use shared defaults — safe for single-agent use.
   export COVERAGE_MCP_ALLOWED_ROOT=/path/to/your/repo
   ```
 
+Optional settings, also environment variables:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS` | `600000` (10 min) | Longest a whole `dotnet test` run may take before it is stopped (`timeout`). |
+| `COVERAGE_MCP_HANG_TIMEOUT_SECONDS` | `30` | Longest a single test may run before it counts as hung and the run is stopped (VSTest; reported as `testRunAborted`). Raise it for long-running integration tests. |
+
 ## Install
 
 Install the server as a global .NET tool from NuGet:
@@ -284,7 +291,7 @@ Methods are ranked by how many uncovered lines and branch outcomes they hold, co
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `coberturaXmlPath` | string | Yes | Path to the current `coverage.cobertura.xml` |
-| `workingDir` | string | No | Directory for storing baseline; defaults to the XML's parent directory |
+| `workingDir` | string | No | Directory for storing the baseline; defaults to the project folder the report belongs to (it walks up past `TestResults*`, `coveragereport*` and GUID folders) |
 | `sessionId` | string | No | Isolates baseline as `.coverage-prev-{hash}.xml` and resolves session-scoped state file. |
 
 ### `AppendTestCode`

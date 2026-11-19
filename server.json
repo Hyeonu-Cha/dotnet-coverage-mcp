@@ -28,6 +28,11 @@
           "name": "COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS",
           "description": "Override the dotnet test timeout in milliseconds. Default: 600000 (10 minutes).",
           "isRequired": false
+        },
+        {
+          "name": "COVERAGE_MCP_HANG_TIMEOUT_SECONDS",
+          "description": "Seconds a single test may run before it counts as hung and the run is stopped (VSTest; reported as testRunAborted). Default: 30. Raise it for long-running integration tests.",
+          "isRequired": false
         }
       ]
     }
