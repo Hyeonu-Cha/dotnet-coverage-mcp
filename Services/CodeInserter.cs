@@ -1,7 +1,9 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 using Microsoft.Extensions.Logging;
 
 namespace DotNetCoverageMcp.Services;
@@ -311,7 +313,8 @@ public class CodeInserter : ICodeInserter
                 targetType = targetClass != null ? types.Last() : PickDefaultTargetType(root);
             }
 
-            var wrapperTree = CSharpSyntaxTree.ParseText($"class __RoslynWrapper__ {{\n{memberCode}\n}}");
+            memberCode = TrimBlankLines(memberCode);
+            var wrapperTree = CSharpSyntaxTree.ParseText(WrapperPrefix + memberCode + "\n}");
             var wrapperRoot = wrapperTree.GetCompilationUnitRoot();
             var wrapperType = wrapperRoot.DescendantNodes().OfType<TypeDeclarationSyntax>().FirstOrDefault();
             if (wrapperType == null || wrapperType.Members.Count == 0) { failureReason = "codeToAppend produced no parseable members"; return false; }
@@ -321,12 +324,26 @@ public class CodeInserter : ICodeInserter
                 .ToList();
             if (wrapperDiags.Count > 0) { failureReason = $"codeToAppend has syntax errors: {wrapperDiags[0].GetMessage()}"; return false; }
 
-            var newMembers = wrapperType.Members;
-            var eol = content.Contains("\r\n") ? SyntaxFactory.CarriageReturnLineFeed : SyntaxFactory.LineFeed;
+            // Laid out like the members around it: their indentation, the file's line endings,
+            // one blank line from the previous member. The code arrives as the agent wrote it
+            // (usually LF, unindented), and inserting it as-is left mixed line endings and
+            // code at column 0 for every review and `dotnet format` check to trip over.
+            var eolText = content.Contains("\r\n") ? "\r\n" : "\n";
+            var eol = eolText == "\r\n" ? SyntaxFactory.CarriageReturnLineFeed : SyntaxFactory.LineFeed;
+            var previousMember = anchorMember ?? targetType.Members.LastOrDefault();
+            var indent = (previousMember != null ? LineIndent(previousMember.GetFirstToken(), content) : null)
+                ?? (LineIndent(targetType.GetFirstToken(), content) ?? "") + (content.Contains("\n\t") ? "\t" : "    ");
+            var formatted = Reindent(memberCode, MultiLineTokenSpans(wrapperRoot), indent, eolText);
+
+            var newMembers = CSharpSyntaxTree.ParseText($"class __RoslynWrapper__ {{{eolText}{formatted}{eolText}}}")
+                .GetCompilationUnitRoot().DescendantNodes().OfType<TypeDeclarationSyntax>().First().Members;
+            var previousToken = previousMember?.GetLastToken() ?? targetType.OpenBraceToken;
+            var separator = SyntaxFactory.TriviaList();
+            if (!previousToken.TrailingTrivia.Any(SyntaxKind.EndOfLineTrivia)) separator = separator.Add(eol);
+            if (previousMember != null) separator = separator.Add(eol);
             var firstMember = newMembers[0];
-            var leadingTrivia = SyntaxFactory.TriviaList(eol, eol);
             newMembers = newMembers.Replace(firstMember,
-                firstMember.WithLeadingTrivia(leadingTrivia.AddRange(firstMember.GetLeadingTrivia())));
+                firstMember.WithLeadingTrivia(separator.AddRange(firstMember.GetLeadingTrivia())));
 
             TypeDeclarationSyntax updatedType;
 
@@ -355,6 +372,64 @@ public class CodeInserter : ICodeInserter
             failureReason = $"exception: {ex.Message}";
             return false;
         }
+    }
+
+    private const string WrapperPrefix = "class __RoslynWrapper__ {\n";
+
+    private static string TrimBlankLines(string code) =>
+        Regex.Replace(code, @"\A(?:[ \t]*\r?\n)+", "").TrimEnd();
+
+    /// <summary>The whitespace before <paramref name="token"/> on its line, or null when other
+    /// code precedes it there (a one-line class, say).</summary>
+    private static string? LineIndent(SyntaxToken token, string text)
+    {
+        var start = token.SpanStart;
+        var lineStart = start == 0 ? 0 : text.LastIndexOf('\n', start - 1) + 1;
+        var prefix = text[lineStart..start];
+        return prefix.All(c => c is ' ' or '\t') ? prefix : null;
+    }
+
+    /// <summary>Spans, relative to the code inside the wrapper, of tokens that contain a line
+    /// break: verbatim, raw and interpolated multi-line strings. Their text is part of the
+    /// program, so re-indenting or changing line endings there would change what a test checks.</summary>
+    private static List<TextSpan> MultiLineTokenSpans(CompilationUnitSyntax wrapperRoot) =>
+        wrapperRoot.DescendantTokens()
+            .Where(t => t.Text.Contains('\n'))
+            .Select(t => new TextSpan(t.SpanStart - WrapperPrefix.Length, t.Span.Length))
+            .ToList();
+
+    /// <summary>
+    /// Moves <paramref name="code"/> to <paramref name="indent"/>, keeping each line's indentation
+    /// relative to the least-indented line, and ends every line with <paramref name="eol"/>.
+    /// Line breaks inside <paramref name="literalSpans"/>, and the lines they start, are kept as written.
+    /// </summary>
+    internal static string Reindent(string code, IReadOnlyList<TextSpan> literalSpans, string indent, string eol)
+    {
+        var lines = new List<(string Text, bool InsideLiteral, string Break)>();
+        var lineStart = 0;
+        var insideLiteral = false;
+        for (var i = 0; i <= code.Length; i++)
+        {
+            if (i < code.Length && code[i] != '\n') continue;
+            var end = i > lineStart && code[i - 1] == '\r' ? i - 1 : i;
+            var breakInLiteral = i < code.Length && literalSpans.Any(s => s.Start <= end && end < s.End);
+            lines.Add((code[lineStart..end], insideLiteral, i < code.Length ? (breakInLiteral ? code[end..(i + 1)] : eol) : ""));
+            insideLiteral = breakInLiteral;
+            lineStart = i + 1;
+        }
+
+        static int Leading(string s) => s.Length - s.TrimStart(' ', '\t').Length;
+        var codeLines = lines.Where(l => !l.InsideLiteral && !string.IsNullOrWhiteSpace(l.Text)).ToList();
+        var common = codeLines.Count == 0 ? 0 : codeLines.Min(l => Leading(l.Text));
+
+        var sb = new StringBuilder();
+        foreach (var (text, inLiteral, lineBreak) in lines)
+        {
+            if (inLiteral) sb.Append(text);
+            else if (!string.IsNullOrWhiteSpace(text)) sb.Append(indent).Append(text, common, text.Length - common);
+            sb.Append(lineBreak);
+        }
+        return sb.ToString();
     }
 
     internal static string HoistUsingsIntoContent(string content, List<string> extractedUsings)

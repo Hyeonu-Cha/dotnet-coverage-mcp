@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `AppendTestCode` inserted the code exactly as the agent sent it: usually with LF line
+  endings and no indentation, after two blank lines. In a CRLF file that left mixed line
+  endings, and the new tests sat at column 0 inside the class, so the result failed
+  `dotnet format --verify-no-changes` and needed reformatting before review. Inserted
+  members now take the indentation of the members around them (or one level inside an
+  empty class, with the file's indent character), keep their own nesting, use the file's
+  line endings, and get one blank line from the previous member. Text inside multi-line
+  string literals is left exactly as written, since tests compare against it.
+
 ### CI
 - The release workflow now publishes to the MCP registry itself: a second job waits for
   NuGet to index the new version, then logs in with the workflow's GitHub OIDC token and
