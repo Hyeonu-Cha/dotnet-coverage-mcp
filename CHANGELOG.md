@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.5] - 2026-11-19
+
 ### Fixed
 - `GetCoverageGaps` applied the report's line numbers to the source file as it is now. After
   the file was edited (a seam added for testing, say), the uncovered lines and the source
