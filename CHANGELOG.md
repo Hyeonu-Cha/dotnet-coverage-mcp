@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shown around them pointed at other code, with no warning. A file changed since the
   coverage run is now marked `sourceChangedSinceRun: true` and its source left out, so the
   agent runs the tests again instead of writing tests for the wrong lines.
+- `AppendTestCode`'s text-based fallback, used when Roslyn cannot place the code (an
+  anchor spanning two members, say), wrote its result without checking it. Code landing
+  between a method's signature and its body was written and reported as success, and the
+  agent found out at the next build. If the file parsed cleanly before and the result does
+  not, the file is now left unchanged and `insertFailed` names the error and suggests an
+  anchor from a single member or `targetClass`. The fallback also keeps the file's line
+  endings now, like the Roslyn path.
 
 ### Changed
 - The release build sets `ContinuousIntegrationBuild`, so the shipped PDB maps source paths

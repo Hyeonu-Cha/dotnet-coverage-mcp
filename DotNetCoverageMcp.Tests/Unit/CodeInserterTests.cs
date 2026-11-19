@@ -496,6 +496,35 @@ public class Second { public void Existing() { } }";
     }
 
     [Fact]
+    public async Task InsertCodeAsync_FallbackThatWouldBreakTheFile_FailsAndLeavesItUntouched()
+    {
+        // Regression: an anchor spanning two members made Roslyn give up, and the text fallback
+        // then inserted after "public void B()", between the signature and its body, wrote the
+        // broken file and reported success.
+        var path = Path.Combine(_tempDir, "Spanning.cs");
+        const string original = "public class Foo\n{\n    public void A() { }\n\n    public void B() { }\n}\n";
+        File.WriteAllText(path, original);
+
+        var act = () => _sut.InsertCodeAsync(path, "public void New() { }", "A() { }\n\n    public void B()");
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .Which.Message.Should().Contain("syntax error").And.Contain("targetClass");
+        File.ReadAllText(path).Should().Be(original);
+    }
+
+    [Fact]
+    public async Task InsertCodeAsync_StringFallback_KeepsCrLf()
+    {
+        var path = Path.Combine(_tempDir, "FallbackCrLf.cs");
+        File.WriteAllText(path, "// marker\r\nvoid Anchor() { }\r\n// end\r\n");
+
+        var result = await _sut.InsertCodeAsync(path, "void New()\n{\n}", "void Anchor() { }");
+
+        result.Method.Should().Be(InsertionMethod.StringFallback);
+        File.ReadAllText(path).Replace("\r\n", "").Should().NotContain("\n").And.Contain("void New()");
+    }
+
+    [Fact]
     public async Task InsertCodeAsync_ThrowsKeyNotFound_WhenAnchorMissing()
     {
         var path = Path.Combine(_tempDir, "NoAnchor.cs");
