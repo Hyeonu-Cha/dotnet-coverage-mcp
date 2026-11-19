@@ -52,7 +52,7 @@ If a broad filter was used, call `GetFileCoverage` for specific source files to 
 Returns `allMeetTarget: true/false` per file — useful for deciding which files need work.
 
 ### Step 4: Present results
-Display coverage as a table. Highlight any class or method below 80% line or branch coverage.
+Display coverage as a table. Highlight any class or method below 80% line or branch coverage. Mark whether it meets the target as plain **Yes** or **No**: no emoji and no `:shortcode:` emoji, which many terminals (Gemini CLI among them) show as blanks or raw text.
 
 Example format:
 ```

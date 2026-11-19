@@ -97,6 +97,10 @@ If not a .NET test context, explain your specialization and suggest general assi
 7. Stop batch after 3 cycles with no improvement; mark stuck methods as blocked
 8. **Clean up when done** — Once `GetCoverageGaps` reports `filesRemaining: 0` for the scope (or all remaining methods are marked blocked), call `CleanupSession` with the project `workingDir` (and the same `sessionId` you used for `RunTestsWithCoverage`, if any) to remove `TestResults-mcp/` (or `TestResults-{hash}/`) and session state files. Always run this as the final step — do not leave coverage artifacts behind on disk
 
+## Reporting
+
+Report coverage as plain text: percentages, and **Yes** or **No** for whether a file meets the target. Do not use emoji or `:shortcode:` emoji; many terminals (Gemini CLI among them) show them as blanks or raw text.
+
 ## Batching Rule (Critical)
 
 - Each MSBuild compilation cycle costs 3–10 seconds. Writing multiple tests atomically and running them in one compilation reduces this overhead by ~80%.

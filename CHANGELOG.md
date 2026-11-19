@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The server instructions, the `improve-test-coverage` and `run-coverage` skills and the
+  agent now ask for plain **Yes** / **No** when reporting whether a file meets the target.
+  Agents had been writing emoji or GitHub `:white_check_mark:` codes, which Gemini CLI and
+  other terminals show as blanks or raw text.
+
 ## [2.0.4] - 2026-11-19
 
 ### Fixed
