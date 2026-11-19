@@ -12,11 +12,11 @@ version on the `main` branch only.
 
 ## Reporting a Vulnerability
 
-If you find a security issue, please **do not open a public GitHub issue**. Instead:
-
-1. Open a private GitHub Security Advisory at
-   <https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/security/advisories/new>, or
-2. Email the maintainer at the address listed on the [GitHub profile](https://github.com/Hyeonu-Cha).
+If you find a security issue, please **do not open a public GitHub issue**. Instead, use
+**Report a vulnerability** on the repository's **Security** tab
+(<https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/security/advisories/new>). It opens a
+private advisory that only you and the maintainer can see, where the fix can be discussed
+before anything is public.
 
 Please include:
 

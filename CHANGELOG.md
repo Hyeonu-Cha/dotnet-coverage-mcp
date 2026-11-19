@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   agent now ask for plain **Yes** / **No** when reporting whether a file meets the target.
   Agents had been writing emoji or GitHub `:white_check_mark:` codes, which Gemini CLI and
   other terminals show as blanks or raw text.
+- The release build sets `ContinuousIntegrationBuild`, so the shipped PDB maps source paths
+  to `/_/` instead of the build runner's folders and the package passes NuGet's
+  deterministic-build check. Source Link is unchanged.
+- SECURITY.md points reporters to GitHub's private vulnerability reporting, now enabled;
+  the "email on the GitHub profile" option is gone, as there is no public address there.
+  A `CODE_OF_CONDUCT.md` (Contributor Covenant 2.0) completes GitHub's community checklist.
 
 ## [2.0.4] - 2026-11-19
 

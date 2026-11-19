@@ -78,7 +78,10 @@ jobs:
         # IsPacking=true activates the packaging PropertyGroup in the csproj.
         # During regular build/test we leave it off so PackAsTool=true doesn't
         # collide with the test project's ProjectReference.
-        run: dotnet pack DotNetCoverageMcp.csproj --configuration Release -p:Version=${{ steps.version.outputs.version }} -p:IsPacking=true -o ./nupkg
+        # ContinuousIntegrationBuild maps the runner's source paths to /_/ in the shipped PDB,
+        # so the package is reproducible and passes NuGet's deterministic-build check. Only
+        # here: on regular CI builds coverlet would then fail to find the sources it measures.
+        run: dotnet pack DotNetCoverageMcp.csproj --configuration Release -p:Version=${{ steps.version.outputs.version }} -p:IsPacking=true -p:ContinuousIntegrationBuild=true -o ./nupkg
 
       # CycloneDX list of what the package ships (MCP SDK, Roslyn, Hosting and their
       # dependencies), attached to the GitHub Release.
