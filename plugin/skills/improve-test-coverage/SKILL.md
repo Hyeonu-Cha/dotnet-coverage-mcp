@@ -117,7 +117,7 @@ Call `GetCoverageGaps` again for the batch, and `GetCoverageDiff` to see method-
 ### Step 6: Repeat or advance
 - **If `filesRemaining` > 0** → return to Step 3 with the new gaps
 - **If all files in batch are done OR 3 cycles with no improvement** → move to next batch
-- **If all batches complete** → report final coverage summary, including how many files were excluded and why (by kind), then go to Step 7. In that summary, write whether each file meets the target as plain **Yes** or **No**: no emoji and no `:shortcode:` emoji, which many terminals (Gemini CLI among them) show as blanks or raw text.
+- **If all batches complete** → report final coverage summary, including how many files were excluded and why (by kind), then go to Step 7
 
 ### Step 7: Clean up
 Call `CleanupSession` with the project's `workingDir`, plus the same `sessionId` you passed to `RunTestsWithCoverage` if you used one. It removes the `TestResults-mcp/` (or `TestResults-{hash}/`) folder and the session state; nothing else deletes them.

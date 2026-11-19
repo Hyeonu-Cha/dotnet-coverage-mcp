@@ -7,8 +7,8 @@ version on the `main` branch only.
 
 | Version | Supported |
 | ------- | --------- |
-| latest `main` | Yes |
-| older commits | No |
+| latest `main` | ✅ |
+| older commits | ❌ |
 
 ## Reporting a Vulnerability
 
