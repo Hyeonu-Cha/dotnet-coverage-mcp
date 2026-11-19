@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using DotNetCoverageMcp.Helpers;
 
 namespace DotNetCoverageMcp.Services;
 
@@ -68,7 +69,7 @@ public static class TestEnvironmentDetector
     {
         var warnings = new List<string>();
         var projectDir = Path.GetDirectoryName(Path.GetFullPath(csprojPath))!;
-        var csproj = XDocument.Load(csprojPath);
+        var csproj = XmlFile.Load(csprojPath);
         var sdks = Sdks(csproj);
 
         // Direct references say what the tests are written with; the full resolved graph
