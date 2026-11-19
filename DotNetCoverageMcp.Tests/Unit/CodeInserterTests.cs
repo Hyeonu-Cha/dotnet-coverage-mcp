@@ -81,7 +81,83 @@ public class MyTests
         var success = CodeInserter.TryRoslynInsert(content, code, null, out var result, out _);
 
         success.Should().BeTrue();
-        result.Should().Contain("\r\n");
+        result.Replace("\r\n", "").Should().NotContain("\n", "every line break stays CRLF");
+    }
+
+    // --- Layout of the inserted code ---
+
+    [Fact]
+    public void InsertedCode_GetsTheMembersIndentationAndTheFilesLineEndings()
+    {
+        // Regression: the member arrived as the agent sent it, so a CRLF file got LF lines
+        // at column 0 after two blank lines.
+        const string content = "public class CalcTests\r\n{\r\n    [Fact]\r\n    public void Adds()\r\n    {\r\n        Assert.Equal(2, 1 + 1);\r\n    }\r\n}\r\n";
+        const string code = "[Fact]\npublic void Subtracts()\n{\n    Assert.Equal(0, 1 - 1);\n}";
+
+        CodeInserter.TryRoslynInsert(content, code, null, out var result, out _).Should().BeTrue();
+
+        result.Should().Be("public class CalcTests\r\n{\r\n    [Fact]\r\n    public void Adds()\r\n    {\r\n        Assert.Equal(2, 1 + 1);\r\n    }\r\n" +
+                           "\r\n    [Fact]\r\n    public void Subtracts()\r\n    {\r\n        Assert.Equal(0, 1 - 1);\r\n    }\r\n}\r\n");
+    }
+
+    [Fact]
+    public void InsertedCode_IsMovedToTheClassIndentation_KeepingItsOwnNesting()
+    {
+        // Block-scoped namespace: members sit at 8 spaces; the agent sent the code at 12.
+        const string content = "namespace App\n{\n    public class T\n    {\n        public void A() { }\n    }\n}\n";
+        const string code = "            public void B()\n            {\n                Run();\n            }\n";
+
+        CodeInserter.TryRoslynInsert(content, code, null, out var result, out _).Should().BeTrue();
+
+        result.Should().Be("namespace App\n{\n    public class T\n    {\n        public void A() { }\n\n" +
+                           "        public void B()\n        {\n            Run();\n        }\n    }\n}\n");
+    }
+
+    [Fact]
+    public void InsertedCode_InAnEmptyClass_IsOneLevelInWithTheFilesIndentCharacter()
+    {
+        const string content = "public class Other\n{\n\tpublic void X() { }\n}\n\npublic class T\n{\n}\n";
+
+        CodeInserter.TryRoslynInsert(content, "public void B() { }", null, out var result, out _, targetClass: "T").Should().BeTrue();
+
+        result.Should().EndWith("public class T\n{\n\tpublic void B() { }\n}\n");
+    }
+
+    [Fact]
+    public void InsertedCode_AfterAnAnchor_HasOneBlankLineOnEachSide()
+    {
+        const string content = "public class T\n{\n    public void First() { }\n\n    public void Second() { }\n}\n";
+
+        CodeInserter.TryRoslynInsert(content, "public void Inserted() { }", "void First()", out var result, out _).Should().BeTrue();
+
+        result.Should().Be("public class T\n{\n    public void First() { }\n\n    public void Inserted() { }\n\n    public void Second() { }\n}\n");
+    }
+
+    [Fact]
+    public void InsertedCode_LeavesMultiLineStringLiteralsAsWritten()
+    {
+        // The literal's text is what the test compares against: re-indenting it or turning its
+        // LF into CRLF would change the expected value.
+        const string content = "public class T\r\n{\r\n    public void A() { }\r\n}\r\n";
+        const string code = "[Fact]\npublic void Json()\n{\n    var s = @\"{\n  \"\"a\"\": 1\n}\";\n    var r = \"\"\"\n        raw\n        \"\"\";\n}";
+
+        CodeInserter.TryRoslynInsert(content, code, null, out var result, out _).Should().BeTrue();
+
+        result.Should().Contain("\r\n        var s = @\"{\n  \"\"a\"\": 1\n}\";\r\n");
+        result.Should().Contain("\r\n        var r = \"\"\"\n        raw\n        \"\"\";\r\n");
+        result.Should().Contain("\r\n    public void Json()\r\n    {\r\n");
+    }
+
+    [Fact]
+    public void InsertedCode_WithUsings_KeepsTheFilesLineEndings()
+    {
+        const string content = "using Xunit;\r\n\r\npublic class T\r\n{\r\n    public void A() { }\r\n}\r\n";
+        const string code = "using System.Linq;\n[Fact]\npublic void L() { }";
+
+        CodeInserter.TryRoslynInsert(content, code, null, out var result, out _).Should().BeTrue();
+
+        result.Should().StartWith("using Xunit;\r\nusing System.Linq;\r\n");
+        result.Replace("\r\n", "").Should().NotContain("\n");
     }
 
     [Fact]
