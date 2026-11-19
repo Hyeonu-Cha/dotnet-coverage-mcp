@@ -49,7 +49,7 @@ public class CoverageTools
     public async Task<string> RunTestsWithCoverage(
         [Description("Absolute path to the .csproj test project. Must be inside COVERAGE_MCP_ALLOWED_ROOT when that environment variable is set.")]
         string testProjectPath,
-        [Description("Optional test filter, passed to `dotnet test --filter`. A plain name matches any test whose fully qualified name contains it (e.g. 'OrderServiceTests' or 'OrderServiceTests.PlacesOrder'). Full VSTest expressions also work ('OrderTests|PaymentTests', 'Category=Unit'). Omit, or pass '*', to run every test in the project.")]
+        [Description("Optional test filter, passed to `dotnet test --filter`. A plain name matches any test whose fully qualified name contains it (e.g. 'OrderServiceTests' or 'OrderServiceTests.PlacesOrder'). Full VSTest expressions also work ('OrderTests|PaymentTests', 'Category=Unit'). Omit, or pass '*', to run every test in the project. A filtered run's coverage covers only the tests that ran, and it replaces the previous report: files those tests don't reach show as uncovered until the next full run, so leave filter out before calling get_coverage_gaps.")]
         string? filter = null,
         [Description("Working directory for the dotnet test invocation. Defaults to the test project's directory when omitted.")]
         string? workingDir = null,
