@@ -60,22 +60,43 @@ public class CodeInserter : ICodeInserter
 
             _logger.LogDebug("Roslyn AST insertion failed for {File}, falling back to string-based: {Reason}",
                 testFilePath, roslynError ?? "unknown");
-            content = content.TrimEnd();
-            result = InsertWithStringFallback(testFilePath, content, codeToAppend, insertAfterAnchor);
+            var fallback = InsertWithStringFallback(content.TrimEnd(), codeToAppend, insertAfterAnchor);
+
+            // The fallback places code by text, not syntax: an anchor spanning two members, or
+            // pointing inside one, lands the code mid-declaration. That used to be written and
+            // reported as success, and the agent found out at the next build. A file that
+            // already had errors can't be judged this way, so it keeps the old behaviour.
+            if (FirstSyntaxError(content) == null && FirstSyntaxError(fallback.Content) is { } broken)
+                throw new InvalidOperationException(
+                    $"Inserting at that anchor would leave the file with a syntax error ({broken}), so it was not changed. " +
+                    "The anchor probably spans two members or points inside one: use text from a single member, or targetClass.");
+
+            _fileService.AtomicWriteFile(testFilePath, fallback.Content);
+            result = fallback;
             await Task.CompletedTask;
         });
 
         return result!;
     }
 
-    private InsertionResult InsertWithStringFallback(string testFilePath, string content, string codeToAppend, string? insertAfterAnchor)
+    /// <summary>Builds the fallback result; the caller checks it before anything is written.</summary>
+    private static InsertionResult InsertWithStringFallback(string content, string codeToAppend, string? insertAfterAnchor)
     {
         // Strip and hoist leading `using` directives — otherwise the fallback would inject them
         // inside the class body, producing invalid C#.
         var (extractedUsings, memberCode) = SplitLeadingUsings(codeToAppend);
         if (extractedUsings.Count > 0)
             content = HoistUsingsIntoContent(content, extractedUsings);
-        codeToAppend = memberCode;
+        var result = InsertByText(content, memberCode, insertAfterAnchor);
+
+        // The file's own line endings, as on the Roslyn path; line breaks inside multi-line
+        // string literals stay as written.
+        var eol = content.Contains("\r\n") ? "\r\n" : "\n";
+        return eol == "\n" ? result : result with { Content = WithLineEndings(result.Content, eol) };
+    }
+
+    private static InsertionResult InsertByText(string content, string codeToAppend, string? insertAfterAnchor)
+    {
 
         if (insertAfterAnchor != null)
         {
@@ -94,7 +115,6 @@ public class CodeInserter : ICodeInserter
                     {
                         var insertPos = idx + matchLength;
                         var newContent = content[..insertPos] + "\n\n" + codeToAppend.Trim() + "\n" + content[insertPos..] + "\n";
-                        _fileService.AtomicWriteFile(testFilePath, newContent);
                         return new InsertionResult(InsertionMethod.StringFallbackNormalized, newContent);
                     }
                 }
@@ -106,7 +126,6 @@ public class CodeInserter : ICodeInserter
             {
                 var insertPos = idx + insertAfterAnchor.Length;
                 var newContent = content[..insertPos] + "\n\n" + codeToAppend.Trim() + "\n" + content[insertPos..] + "\n";
-                _fileService.AtomicWriteFile(testFilePath, newContent);
                 return new InsertionResult(InsertionMethod.StringFallback, newContent);
             }
         }
@@ -122,7 +141,6 @@ public class CodeInserter : ICodeInserter
             // No closing brace found (e.g. empty file or only file-scoped globals) — append at EOF.
             appended = content + "\n\n" + codeToAppend.Trim() + "\n";
         }
-        _fileService.AtomicWriteFile(testFilePath, appended);
         return new InsertionResult(InsertionMethod.Appended, appended);
     }
 
@@ -398,12 +416,26 @@ public class CodeInserter : ICodeInserter
             .Select(t => new TextSpan(t.SpanStart - WrapperPrefix.Length, t.Span.Length))
             .ToList();
 
+    /// <summary>The first syntax error in <paramref name="text"/> as "CSxxxx: message", or null.</summary>
+    internal static string? FirstSyntaxError(string text) =>
+        CSharpSyntaxTree.ParseText(text).GetDiagnostics()
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => $"{d.Id}: {d.GetMessage()}")
+            .FirstOrDefault();
+
+    /// <summary><paramref name="text"/> with every line break outside multi-line string literals
+    /// turned into <paramref name="eol"/>; indentation is left alone.</summary>
+    internal static string WithLineEndings(string text, string eol) =>
+        Reindent(text, CSharpSyntaxTree.ParseText(text).GetCompilationUnitRoot().DescendantTokens()
+            .Where(t => t.Text.Contains('\n')).Select(t => t.Span).ToList(), indent: null, eol);
+
     /// <summary>
     /// Moves <paramref name="code"/> to <paramref name="indent"/>, keeping each line's indentation
     /// relative to the least-indented line, and ends every line with <paramref name="eol"/>.
     /// Line breaks inside <paramref name="literalSpans"/>, and the lines they start, are kept as written.
+    /// A null <paramref name="indent"/> keeps every line's indentation and only changes the breaks.
     /// </summary>
-    internal static string Reindent(string code, IReadOnlyList<TextSpan> literalSpans, string indent, string eol)
+    internal static string Reindent(string code, IReadOnlyList<TextSpan> literalSpans, string? indent, string eol)
     {
         var lines = new List<(string Text, bool InsideLiteral, string Break)>();
         var lineStart = 0;
@@ -425,7 +457,7 @@ public class CodeInserter : ICodeInserter
         var sb = new StringBuilder();
         foreach (var (text, inLiteral, lineBreak) in lines)
         {
-            if (inLiteral) sb.Append(text);
+            if (inLiteral || indent == null) sb.Append(text);
             else if (!string.IsNullOrWhiteSpace(text)) sb.Append(indent).Append(text, common, text.Length - common);
             sb.Append(lineBreak);
         }
