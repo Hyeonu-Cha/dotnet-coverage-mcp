@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.4] - 2026-11-19
+
 ### Fixed
 - `AppendTestCode` inserted the code exactly as the agent sent it: usually with LF line
   endings and no indentation, after two blank lines. In a CRLF file that left mixed line
