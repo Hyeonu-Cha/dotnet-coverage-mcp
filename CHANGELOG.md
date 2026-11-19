@@ -15,6 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TestResults-mcp`, and `TestResults-` / `coveragereport-` followed by a session key (8
   lowercase hex characters). A negative `maxAgeMinutes`, which dated the cutoff in the future
   and swept every session's artifacts, is rejected with `invalidParameter`.
+- A hung test made VSTest write two full memory dumps of the test host into the project's
+  results folder: about 330 MB for a three-test project, holding everything the test host had
+  in memory, environment variables included. The hang timeout now passes
+  `--blame-hang-dump-type none`; the hung test is still found from the Sequence file and the
+  TRX, and the results folder stays a few dozen KB.
+- On a project that had never been restored (a fresh clone), the default `--no-restore`
+  made `dotnet test` exit 0 having done nothing, since without a restore it does not see a
+  test project, and the tool answered "No coverage XML found." with no output to go on.
+  `RunTestsWithCoverage` now restores whenever `obj/project.assets.json` is missing, and the
+  `noCoverage` message says what to check.
+- `RunTestsWithCoverage` with a `workingDir` that does not exist, or on a machine where
+  `dotnet` cannot be started, failed with the SDK's generic "An error occurred invoking" and
+  nothing to act on. These now return `fileNotFound` and `dotnetNotFound`. A TRX cut short
+  when the test host is killed mid-write is skipped instead of throwing, and
+  `GetTestEnvironment` reports an unreadable project file as `parseFailed` for I/O and access
+  errors too, not only malformed XML.
 
 ## [2.0.6] - 2026-11-19
 

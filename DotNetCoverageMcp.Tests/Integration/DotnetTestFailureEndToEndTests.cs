@@ -104,6 +104,25 @@ public class DotnetTestFailureEndToEndTests : IClassFixture<SampleProjectFixture
         root.TryGetProperty("coberturaXmlPath", out _).Should().BeFalse("a run that stopped part-way has incomplete coverage");
     }
 
+    [Fact]
+    public async Task NeverRestoredProject_IsRestoredAndRuns()
+    {
+        // Regression: on a fresh clone, --no-restore made dotnet test exit 0 having done nothing
+        // (without a restore it doesn't see a test project), reported as "No coverage XML found".
+        var root = Path.Combine(Path.GetTempPath(), $"coverage-mcp-fresh-{Guid.NewGuid():N}");
+        SampleProjectFixture.CopyDirectory(Path.Combine(AppContext.BaseDirectory, "Fixtures", "SampleProject"), root);
+        try
+        {
+            var result = await _sut.RunTestsWithCoverage(Path.Combine(root, "SampleLib.Tests", "SampleLib.Tests.csproj"));
+
+            result.Should().StartWith("Tests completed.", because: result).And.Contain("Passed: 3");
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best-effort temp cleanup */ }
+        }
+    }
+
     private TempFile AddTestFile(string name, string content) =>
         new(Path.Combine(Path.GetDirectoryName(_fixture.TestProjectPath)!, name), content);
 

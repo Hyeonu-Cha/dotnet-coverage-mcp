@@ -29,17 +29,17 @@ public static class TrxReader
         "Moq.", "NSubstitute.", "FakeItEasy.", "Castle."
     ];
 
-    /// <summary>Returns null when there are no TRX files, e.g. the build failed.</summary>
+    /// <summary>Returns null when there are no readable TRX files, e.g. the build failed.</summary>
     public static TestSummary? Read(IReadOnlyCollection<string> trxPaths)
     {
-        if (trxPaths.Count == 0) return null;
+        var docs = trxPaths.Select(TryLoad).OfType<XDocument>().ToList();
+        if (docs.Count == 0) return null;
 
         int total = 0, passed = 0, failed = 0;
         var failures = new List<TestFailure>();
 
-        foreach (var path in trxPaths)
+        foreach (var doc in docs)
         {
-            var doc = XDocument.Load(path);
             var counters = doc.Descendants(Ns + "Counters").FirstOrDefault();
             total += Count(counters, "total");
             passed += Count(counters, "passed");
@@ -101,7 +101,8 @@ public static class TrxReader
     public static TestRunAbort ReadAbort(IEnumerable<string> trxPaths, IEnumerable<string> sequencePaths, string? consoleOutput)
     {
         var runInfos = trxPaths
-            .SelectMany(p => XDocument.Load(p).Descendants(Ns + "RunInfo"))
+            .Select(TryLoad).OfType<XDocument>()
+            .SelectMany(d => d.Descendants(Ns + "RunInfo"))
             .Select(r => (Error: (string?)r.Attribute("outcome") == "Error", Text: Normalize(r.Element(Ns + "Text")?.Value)))
             .Where(r => r.Text.Length > 0)
             .OrderByDescending(r => r.Error)
@@ -167,6 +168,14 @@ public static class TrxReader
         var message = lines.Take(start).Where(l => l.Length > 0).TakeLast(2);
         var frames = TrimStack(string.Join("\n", lines.Skip(start).Take(end - start + 1)));
         return Truncate(string.Join("\n", frames == null ? message : message.Append(frames)));
+    }
+
+    // A TRX can be cut short when the test host is killed while writing it. Skip it rather than
+    // let the XmlException fail the whole tool call with the SDK's generic error.
+    private static XDocument? TryLoad(string path)
+    {
+        try { return XDocument.Load(path); }
+        catch (Exception ex) when (ex is System.Xml.XmlException or IOException or UnauthorizedAccessException) { return null; }
     }
 
     private static int Count(XElement? counters, string name) =>
