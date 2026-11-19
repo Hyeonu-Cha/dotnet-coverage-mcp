@@ -49,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `if (n < 0) return "negative";`, and every character of a non-Latin folder
   name took six. Only what JSON requires is escaped now; responses are read by a model, never
   embedded in HTML.
+- `server.json` and the README list `COVERAGE_MCP_HANG_TIMEOUT_SECONDS`, which the
+  `testRunAborted` hint tells the agent to raise for long tests; it was documented nowhere. The
+  README also lists `COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS` and gives `GetCoverageDiff`'s real
+  `workingDir` default (the project folder the report belongs to, not the XML's parent).
 
 ### Security
 - Coverage reports, TRX files, Blame sequence files and project files were loaded with
