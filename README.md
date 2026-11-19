@@ -223,7 +223,7 @@ Or point directly at the compiled executable:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `testProjectPath` | string | Yes | Path to the `.csproj` test project. Resolved to a rooted path and required to end in `.csproj` and exist; anything else (e.g. a CLI option) is rejected with `invalidParameter` or `fileNotFound`. |
-| `filter` | string | No | Passed to `dotnet test --filter`. A plain name matches tests whose fully qualified name contains it (`OrderServiceTests`, `OrderServiceTests.PlacesOrder`); full VSTest expressions also work (`OrderTests\|PaymentTests`, `Category=Unit`). Omit or pass `*` to run every test. |
+| `filter` | string | No | Passed to `dotnet test --filter`. A plain name matches tests whose fully qualified name contains it (`OrderServiceTests`, `OrderServiceTests.PlacesOrder`); full VSTest expressions also work (`OrderTests\|PaymentTests`, `Category=Unit`). Omit or pass `*` to run every test. A filtered run's coverage covers only the tests that ran and replaces the previous report, so files those tests don't reach show as uncovered until the next full run. |
 | `workingDir` | string | No | Working directory; defaults to the project directory |
 | `forceRestore` | bool | No | When `true`, skips the `--no-restore` flag. Use after scaffolding a new test project or adding NuGet packages. |
 | `sessionId` | string | No | Isolates the output directory (`TestResults-{hash}/`) and state files for concurrent multi-agent use. Without it, results go to `TestResults-mcp/`. |

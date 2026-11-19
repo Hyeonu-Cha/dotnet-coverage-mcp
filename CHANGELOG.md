@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Their coverage is incomplete and is not offered. Classification uses exit codes and
   counts, not console text, so it does not depend on the SDK's language.
 
+### Changed
+- The `filter` parameter of `RunTestsWithCoverage` now says that a filtered run's coverage
+  covers only the tests that ran and replaces the previous report, so files those tests do
+  not reach look uncovered until the next full run. The Claude skills already said so;
+  other clients, such as Gemini CLI, see only the tool description.
+
 ## [2.0.5] - 2026-11-19
 
 ### Fixed
