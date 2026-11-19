@@ -792,6 +792,11 @@ public class CoverageTools
         try { _pathGuard.Validate(workingDir, nameof(workingDir)); }
         catch (UnauthorizedAccessException ex) { return JsonHelper.Error("pathNotAllowed", ex.Message); }
 
+        // A negative age puts the cutoff in the future, so every other session's artifacts
+        // would count as old. 0 still means "whatever their age", on purpose.
+        if (maxAgeMinutes < 0)
+            return JsonHelper.Error("invalidParameter", "maxAgeMinutes must be 0 or more.");
+
         var removed = _sessionManager.Cleanup(workingDir, sessionId, maxAgeMinutes);
         return JsonHelper.Serialize(new { removed });
     }

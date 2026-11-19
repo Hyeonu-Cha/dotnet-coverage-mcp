@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `CleanupSession` without a `sessionId` deleted any folder in `workingDir` whose name
+  started with `TestResults-` or `coveragereport-` and was older than `maxAgeMinutes`, so
+  folders the user's own scripts write (`TestResults-ci-history`, `coveragereport-html`) were
+  removed with everything in them. It now removes only the names the tool creates:
+  `TestResults-mcp`, and `TestResults-` / `coveragereport-` followed by a session key (8
+  lowercase hex characters). A negative `maxAgeMinutes`, which dated the cutoff in the future
+  and swept every session's artifacts, is rejected with `invalidParameter`.
+
 ## [2.0.6] - 2026-11-19
 
 ### Fixed
