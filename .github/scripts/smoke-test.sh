@@ -36,7 +36,12 @@ request() {
   sleep 10
 }
 
-request | "$WORK/tool/dotnet-coverage-mcp" > "$WORK/out.json" 2> "$WORK/err.log" || true
+# MCP clients start the server in the user's repository. Start it in a folder whose
+# appsettings.json is malformed: the server must not load the repository's settings
+# (before 2.0.7 it did, and crashed on startup there).
+mkdir -p "$WORK/repo"
+printf '{ "Logging": { not json' > "$WORK/repo/appsettings.json"
+(cd "$WORK/repo" && request | "$WORK/tool/dotnet-coverage-mcp" > "$WORK/out.json" 2> "$WORK/err.log") || true
 
 # The tools/list reply is the line with id 2; count the tool entries in it.
 fail() {
