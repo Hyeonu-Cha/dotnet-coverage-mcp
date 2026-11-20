@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-20
+
 ### Fixed
 - A test project with several target frameworks writes one coverage report per framework, and
   `run_tests_with_coverage` returned whichever sorted first. They sit in GUID-named folders, so
@@ -20,7 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_coverage_gaps` named files by the report's paths, which coverlet writes relative to a
   `<source>` root (`<source>C:/</source>` with `filename="Users/…"`): an agent handing one to
   `describe_test_target` got `fileNotFound`. Files are now named by their full paths, as
-  `notInReport` always was, and `get_file_coverage` returns the file's path on this machine.
+  `notInReport` always was, and `get_file_coverage` returns the file's path on this machine. On
+  Linux and macOS, where coverlet can write `<source>/</source>`, that root was dropped and the
+  names came back as `tmp/…`, without the leading `/`.
 
 ### Changed
 - `get_coverage_summary` returns the 25 worst classes unless `topN` says otherwise, in an object
@@ -590,7 +594,8 @@ Highlights:
   (`COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS` overrides).
 - Atomic writes for state files and inserted test code.
 
-[Unreleased]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.7...HEAD
+[Unreleased]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.7...v2.1.0
 [2.0.7]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.6...v2.0.7
 [2.0.6]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.5...v2.0.6
 [2.0.5]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.4...v2.0.5
