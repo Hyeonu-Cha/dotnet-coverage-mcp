@@ -321,6 +321,24 @@ public class CoberturaServiceTests : IDisposable
     }
 
     [Fact]
+    public void GetFileCoverage_UnderTheFileSystemRoot_KeepsTheLeadingSlash()
+    {
+        // Coverlet on Linux and macOS writes <source>/</source> when the files share nothing
+        // shorter; the root was dropped and "tmp/…/Foo.cs" came back, no longer a path.
+        var path = WriteCoberturaXml("""
+            <coverage>
+              <sources><source>/</source></sources>
+              <packages><package><classes>
+                <class name="App.Foo" filename="tmp/e2e/Foo.cs" line-rate="1" branch-rate="1"><methods/></class>
+              </classes></package></packages>
+            </coverage>
+            """);
+
+        _sut.GetFileCoverage(path, "Foo.cs", 0.8).SourceFile.Should().Be("/tmp/e2e/Foo.cs");
+        _sut.GetFileCoverage(path, "/tmp/e2e/Foo.cs", 0.8).Classes.Should().ContainSingle("an absolute path matches exactly");
+    }
+
+    [Fact]
     public void GetFileCoverage_ReportsTheFileAsAPathOnThisMachine()
     {
         // Regression: the report-relative "sub/Foo.cs" was passed on as it was, and an agent

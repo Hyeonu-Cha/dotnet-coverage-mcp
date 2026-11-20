@@ -49,8 +49,14 @@ internal sealed record CoverageModel(IReadOnlyList<string> SourceRoots, double L
             throw new InvalidDataException(
                 $"Not a Cobertura coverage report: the root element is <{doc.Root?.Name.LocalName}>, not <coverage>.");
 
-        var roots = doc.Descendants("source").Select(s => s.Value.Trim().Replace('\\', '/').TrimEnd('/'))
-            .Where(s => s.Length > 0).ToList();
+        // Coverlet writes the files' common folder, which can be the drive or file-system root:
+        // "C:/" on Windows, "/" elsewhere. "/" stays a root, as "" ("{root}/{file}" is then
+        // "/{file}"); it used to be dropped, and the file names relative to it were passed on as
+        // "tmp/…", no longer a path.
+        var roots = doc.Descendants("source").Select(s => s.Value.Trim().Replace('\\', '/'))
+            .Where(s => s.Length > 0)
+            .Select(s => s.TrimEnd('/'))
+            .ToList();
 
         var fragments = new List<Fragment>();
         // Rates coverlet computed for a real class, used as-is when nothing is folded into it.
