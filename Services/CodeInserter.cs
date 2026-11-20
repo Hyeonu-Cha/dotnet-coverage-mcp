@@ -8,12 +8,15 @@ using Microsoft.Extensions.Logging;
 
 namespace DotNetCoverageMcp.Services;
 
-public enum InsertionMethod { RoslynAst, StringFallback, StringFallbackNormalized, Appended }
+public enum InsertionMethod { RoslynAst, StringFallback, StringFallbackNormalized, Appended, AlreadyPresent }
 
 public record InsertionResult(InsertionMethod Method, string Content);
 
 /// <summary>The code to insert is not valid C# class-member syntax; nothing was written.</summary>
 public sealed class CodeSyntaxException(string message) : Exception(message);
+
+/// <summary>The target class already declares a member the code declares; nothing was written.</summary>
+public sealed class DuplicateMemberException(string message) : Exception(message);
 
 public interface ICodeInserter
 {
@@ -49,6 +52,11 @@ public class CodeInserter : ICodeInserter
 
             if (TryRoslynInsert(content, codeToAppend, insertAfterAnchor, out var roslynResult, out var roslynError, targetClass))
             {
+                if (roslynResult == content)
+                {
+                    result = new InsertionResult(InsertionMethod.AlreadyPresent, content);
+                    return;
+                }
                 _fileService.AtomicWriteFile(testFilePath, roslynResult);
                 result = new InsertionResult(InsertionMethod.RoslynAst, roslynResult);
                 return;
@@ -348,6 +356,27 @@ public class CodeInserter : ICodeInserter
                 .ToList();
             if (wrapperDiags.Count > 0) { failureReason = $"codeToAppend has syntax errors: {wrapperDiags[0].GetMessage()}"; return false; }
 
+            // The same code sent twice (a retried call, say) went in twice, reported as success,
+            // and the next build failed with CS0111. An exact repeat now inserts nothing (the
+            // unchanged content is the signal); a member whose signature the class already has is
+            // refused, naming it.
+            // ponytail: only here; the string fallback (anchors Roslyn can't place) doesn't check.
+            var existing = targetType.Members.Where(m => SignatureKey(m) != null).ToLookup(m => SignatureKey(m)!);
+            var repeats = wrapperType.Members.Where(m => SignatureKey(m) is { } key && existing.Contains(key)).ToList();
+            if (repeats.Count > 0)
+            {
+                bool Identical(MemberDeclarationSyntax m) => existing[SignatureKey(m)!].Any(e => e.IsEquivalentTo(m, topLevel: false));
+                if (repeats.Count == wrapperType.Members.Count && repeats.All(Identical))
+                {
+                    result = content;
+                    return true;
+                }
+                throw new DuplicateMemberException(
+                    $"{targetType.Identifier.Text} already declares " +
+                    string.Join(", ", repeats.Select(m => $"{MemberLabel(m)} ({(Identical(m) ? "the same code" : "different code")})")) +
+                    ", so nothing was inserted. Give a new test a name of its own, and send only members the class does not have yet.");
+            }
+
             // Laid out like the members around it: their indentation, the file's line endings,
             // one blank line from the previous member. The code arrives as the agent wrote it
             // (usually LF, unindented), and inserting it as-is left mixed line endings and
@@ -391,12 +420,43 @@ public class CodeInserter : ICodeInserter
             result = newRoot.ToFullString();
             return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not DuplicateMemberException)
         {
             failureReason = $"exception: {ex.Message}";
             return false;
         }
     }
+
+    /// <summary>
+    /// What makes two members of a class clash: a method's name, type-parameter count and
+    /// parameter types (overloads differ there); any other member's name. Null for members
+    /// that may legitimately appear twice (partial declarations) or are not compared.
+    /// </summary>
+    internal static string? SignatureKey(MemberDeclarationSyntax member)
+    {
+        if (member.Modifiers.Any(SyntaxKind.PartialKeyword)) return null;
+        static string Parameters(BaseParameterListSyntax list) =>
+            string.Join(",", list.Parameters.Select(p => Regex.Replace($"{p.Modifiers} {p.Type}", @"\s+", "")));
+        return member switch
+        {
+            MethodDeclarationSyntax m =>
+                $"{m.ExplicitInterfaceSpecifier}{m.Identifier.Text}`{m.TypeParameterList?.Parameters.Count ?? 0}({Parameters(m.ParameterList)})",
+            ConstructorDeclarationSyntax c =>
+                $"{(c.Modifiers.Any(SyntaxKind.StaticKeyword) ? "static " : "")}.ctor({Parameters(c.ParameterList)})",
+            PropertyDeclarationSyntax p => $"{p.ExplicitInterfaceSpecifier}{p.Identifier.Text}",
+            BaseFieldDeclarationSyntax f => string.Join(",", f.Declaration.Variables.Select(v => v.Identifier.Text)),
+            BaseTypeDeclarationSyntax t => t.Identifier.Text,
+            _ => null
+        };
+    }
+
+    private static string MemberLabel(MemberDeclarationSyntax member) => member switch
+    {
+        MethodDeclarationSyntax m => $"{m.Identifier.Text}{m.ParameterList}",
+        ConstructorDeclarationSyntax c => $"the constructor {c.Identifier.Text}{c.ParameterList}",
+        BaseTypeDeclarationSyntax t => $"the type {t.Identifier.Text}",
+        _ => SignatureKey(member) ?? member.Kind().ToString()
+    };
 
     private const string WrapperPrefix = "class __RoslynWrapper__ {\n";
 

@@ -119,8 +119,8 @@ public static class TestEnvironmentDetector
             : CoveragePackages.FirstOrDefault(HasAnywhere);
         if (coverage == null)
             warnings.Add(runner == Vstest
-                ? "No coverage collector is referenced. Add the coverlet.collector package, or RunTestsWithCoverage will return noCoverage."
-                : "Microsoft.Testing.Extensions.CodeCoverage is not referenced. Add it; RunTestsWithCoverage collects coverage on Microsoft.Testing.Platform through that extension.");
+                ? "No coverage collector is referenced. Add the coverlet.collector package, or run_tests_with_coverage will return noCoverage."
+                : "Microsoft.Testing.Extensions.CodeCoverage is not referenced. Add it; run_tests_with_coverage collects coverage on Microsoft.Testing.Platform through that extension.");
         if (runner == Mtp && !DotnetTestUsesMtp(projectDir))
             warnings.Add("This project uses Microsoft.Testing.Platform, but no global.json sets \"test\": { \"runner\": \"Microsoft.Testing.Platform\" }. On the .NET 10 SDK and later, `dotnet test` rejects such projects in its default VSTest mode; add that setting to the repository's global.json.");
 

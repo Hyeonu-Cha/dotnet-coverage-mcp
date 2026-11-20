@@ -232,7 +232,7 @@ public class CoberturaServiceTests : IDisposable
 
         var result = _sut.GetFileCoverage(path, requested, 0.8);
 
-        result.SourceFile.Should().Be("Services/FileService.cs");
+        result.SourceFile.Should().Be("C:/repo/Services/FileService.cs", "the report path joined to its <source> root, so another tool can open it");
         result.Classes.Select(c => c.Class).Should().Equal("App.Services.FileService");
     }
 
@@ -243,7 +243,7 @@ public class CoberturaServiceTests : IDisposable
 
         var result = _sut.GetFileCoverage(path, "/home/runner/work/repo/Services/FileService.cs", 0.8);
 
-        result.SourceFile.Should().Be("Services/FileService.cs");
+        result.SourceFile.Should().Be("/home/runner/work/repo/Services/FileService.cs");
     }
 
     [Theory]
@@ -279,7 +279,7 @@ public class CoberturaServiceTests : IDisposable
         var act = () => _sut.GetFileCoverage(path, "OrderController.cs", 0.8);
 
         act.Should().Throw<AmbiguousFileException>()
-            .Which.Candidates.Should().BeEquivalentTo("Controllers/OrderController.cs", "Areas/Shop/OrderController.cs");
+            .Which.Candidates.Should().BeEquivalentTo("C:/repo/Controllers/OrderController.cs", "C:/repo/Areas/Shop/OrderController.cs");
     }
 
     [Fact]
@@ -289,7 +289,7 @@ public class CoberturaServiceTests : IDisposable
 
         var result = _sut.GetFileCoverage(path, @"C:\repo\Areas\Shop\OrderController.cs", 0.8);
 
-        result.SourceFile.Should().Be("Areas/Shop/OrderController.cs");
+        result.SourceFile.Should().Be("C:/repo/Areas/Shop/OrderController.cs");
         result.Classes.Should().ContainSingle();
     }
 
@@ -317,7 +317,27 @@ public class CoberturaServiceTests : IDisposable
             </coverage>
             """);
 
-        _sut.GetFileCoverage(path, Path.Combine(link, "Foo.cs"), 0.8).SourceFile.Should().Be("Foo.cs");
+        _sut.GetFileCoverage(path, Path.Combine(link, "Foo.cs"), 0.8).SourceFile.Should().Be(Path.Combine(real, "Foo.cs"));
+    }
+
+    [Fact]
+    public void GetFileCoverage_ReportsTheFileAsAPathOnThisMachine()
+    {
+        // Regression: the report-relative "sub/Foo.cs" was passed on as it was, and an agent
+        // giving it to describe_test_target got fileNotFound.
+        var file = Path.Combine(_tempDir, "sub", "Foo.cs");
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "class Foo { }");
+        var path = WriteCoberturaXml($"""
+            <coverage>
+              <sources><source>/nowhere/</source><source>{_tempDir.Replace('\\', '/')}/</source></sources>
+              <packages><package><classes>
+                <class name="App.Foo" filename="sub/Foo.cs" line-rate="1" branch-rate="1"><methods/></class>
+              </classes></package></packages>
+            </coverage>
+            """);
+
+        _sut.GetFileCoverage(path, "Foo.cs", 0.8).SourceFile.Should().Be(file, "the root the file exists under, in this OS's form");
     }
 
     [Fact]

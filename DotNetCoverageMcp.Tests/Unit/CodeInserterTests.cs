@@ -681,4 +681,82 @@ public void X() { }";
         usings[0].Should().Be("using System;");
         usings[1].Should().Be("using System.Linq;");
     }
+
+    // --- Duplicate members ---
+
+    private string WriteTestFile(string content)
+    {
+        var path = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.cs");
+        File.WriteAllText(path, content);
+        return path;
+    }
+
+    [Fact]
+    public async Task InsertCodeAsync_SameCodeTwice_InsertsItOnce()
+    {
+        // Regression: a repeated call inserted the test again, and the next build failed with CS0111.
+        var path = WriteTestFile("public class CalcTests\n{\n    [Fact]\n    public void Adds() { }\n}\n");
+        const string code = "[Fact]\npublic void Subtracts()\n{\n    Assert.Equal(0, 1 - 1);\n}";
+
+        (await _sut.InsertCodeAsync(path, code, null)).Method.Should().Be(InsertionMethod.RoslynAst);
+        var once = await File.ReadAllTextAsync(path);
+        var again = await _sut.InsertCodeAsync(path, code, null);
+
+        again.Method.Should().Be(InsertionMethod.AlreadyPresent);
+        (await File.ReadAllTextAsync(path)).Should().Be(once);
+    }
+
+    [Fact]
+    public async Task InsertCodeAsync_ExistingNameWithOtherCode_IsRefusedAndTheFileKept()
+    {
+        const string content = "public class CalcTests\n{\n    [Fact]\n    public void Adds() { Assert.True(true); }\n}\n";
+        var path = WriteTestFile(content);
+
+        var act = () => _sut.InsertCodeAsync(path, "[Fact]\npublic void Adds() { Assert.False(false); }", null);
+
+        (await act.Should().ThrowAsync<DuplicateMemberException>())
+            .Which.Message.Should().Contain("Adds()").And.Contain("different code");
+        (await File.ReadAllTextAsync(path)).Should().Be(content);
+    }
+
+    [Fact]
+    public async Task InsertCodeAsync_RepeatMixedWithNewCode_IsRefusedNamingTheRepeat()
+    {
+        const string content = "public class CalcTests\n{\n    public void Adds() { }\n}\n";
+        var path = WriteTestFile(content);
+
+        var act = () => _sut.InsertCodeAsync(path, "public void Adds() { }\npublic void Subtracts() { }", null);
+
+        (await act.Should().ThrowAsync<DuplicateMemberException>())
+            .Which.Message.Should().Contain("Adds()").And.Contain("the same code");
+        (await File.ReadAllTextAsync(path)).Should().Be(content);
+    }
+
+    [Theory]
+    [InlineData("public void Adds(int a) { }", "an overload")]
+    [InlineData("public void Adds<T>() { }", "a generic overload")]
+    [InlineData("public int Adds2 { get; set; }", "another name")]
+    public async Task InsertCodeAsync_OverloadsAndOtherNames_AreInserted(string code, string what)
+    {
+        var path = WriteTestFile("public class CalcTests\n{\n    public void Adds() { }\n}\n");
+
+        (await _sut.InsertCodeAsync(path, code, null)).Method.Should().Be(InsertionMethod.RoslynAst, what);
+    }
+
+    [Theory]
+    [InlineData("public void Adds(int x) { }", "public void Adds(int y) { }", true)]            // parameter names don't count
+    [InlineData("public void Adds(ref int x) { }", "public void Adds(int x) { }", false)]
+    [InlineData("private int _count;", "private int _count = 1;", true)]
+    [InlineData("public CalcTests(int a) { }", "public CalcTests(int b) { }", true)]
+    [InlineData("partial void Hook();", "partial void Hook() { }", false)]                    // declaration + implementation
+    public void SignatureKey_MatchesWhatTheCompilerCallsADuplicate(string existing, string added, bool clash)
+    {
+        MemberDeclarationSyntax Parse(string member) =>
+            CSharpSyntaxTree.ParseText($"partial class CalcTests {{ {member} }}").GetCompilationUnitRoot()
+                .DescendantNodes().OfType<TypeDeclarationSyntax>().Single().Members.Single();
+
+        var (a, b) = (CodeInserter.SignatureKey(Parse(existing)), CodeInserter.SignatureKey(Parse(added)));
+
+        (a != null && a == b).Should().Be(clash);
+    }
 }

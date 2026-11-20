@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Protocol;
+using DotNetCoverageMcp.Helpers;
 using DotNetCoverageMcp.Services;
 
 // The content root defaults to the current folder, which MCP clients set to the user's repository:
@@ -39,6 +41,15 @@ builder.Services
             """;
     })
     .WithStdioServerTransport()
-    .WithToolsFromAssembly();
+    .WithToolsFromAssembly()
+    .WithRequestFilters(filters => filters.AddCallToolFilter(next => async (context, cancellationToken) =>
+    {
+        var result = await next(context, cancellationToken);
+        // Tools answer errors as {"error": ..., "errorType": ...} text. Flagged, clients show and
+        // log them as failed calls, as the MCP spec asks of tool execution errors.
+        if (result.Content is [TextContentBlock { Text: var text }] && JsonHelper.IsError(text))
+            result.IsError = true;
+        return result;
+    }));
 
 await builder.Build().RunAsync();

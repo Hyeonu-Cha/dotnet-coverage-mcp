@@ -181,42 +181,25 @@ public class SessionManagerTests : IDisposable
     // --- SaveCoverageState ---
 
     [Fact]
-    public void SaveCoverageState_WritesFilterKeyedAndGlobalAlways()
+    public void SaveCoverageState_WithoutSession_WritesOnlyTheGlobalFile()
     {
-        _sut.SaveCoverageState(_tempDir, "/path/to/xml", "Ns.MyFilter", null);
+        _sut.SaveCoverageState(_tempDir, "/path/to/xml", null);
 
-        // Filter-keyed state file
         _fileService.Verify(f => f.AtomicWriteFile(
             It.Is<string>(s => s.Contains(".coverage-state-")),
-            "/path/to/xml"), Times.Once);
-        // Global state file
+            It.IsAny<string>()), Times.Never, "no state file keyed by the filter any more");
         _fileService.Verify(f => f.AtomicWriteFile(
             It.Is<string>(s => s.EndsWith(".coverage-state")),
             "/path/to/xml"), Times.Once);
     }
 
     [Fact]
-    public void SaveCoverageState_WritesFilterAndSessionKeyedWhenSessionDiffersFromFilter()
+    public void SaveCoverageState_WithSession_WritesSessionKeyedAndGlobal()
     {
-        _sut.SaveCoverageState(_tempDir, "/path/to/xml", "Ns.MyFilter", "sess1");
-
-        // Filter-keyed + session-keyed (different hashes) + global = 3 writes
-        _fileService.Verify(f => f.AtomicWriteFile(
-            It.Is<string>(s => s.Contains(".coverage-state-")),
-            "/path/to/xml"), Times.Exactly(2));
-        _fileService.Verify(f => f.AtomicWriteFile(
-            It.Is<string>(s => s.EndsWith(".coverage-state")),
-            "/path/to/xml"), Times.Once);
-    }
-
-    [Fact]
-    public void SaveCoverageState_SkipsDuplicateWhenSessionEqualsFilter()
-    {
-        // When sessionId == filter, their keys match — only 2 writes (keyed + global)
-        _sut.SaveCoverageState(_tempDir, "/path/to/xml", "same", "same");
+        _sut.SaveCoverageState(_tempDir, "/path/to/xml", "sess1");
 
         _fileService.Verify(f => f.AtomicWriteFile(
-            It.Is<string>(s => s.Contains(".coverage-state-")),
+            It.Is<string>(s => s.EndsWith($".coverage-state-{_sut.ComputeKey("sess1")}")),
             "/path/to/xml"), Times.Once);
         _fileService.Verify(f => f.AtomicWriteFile(
             It.Is<string>(s => s.EndsWith(".coverage-state")),

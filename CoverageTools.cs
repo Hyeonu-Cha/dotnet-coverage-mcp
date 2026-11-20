@@ -155,15 +155,12 @@ public class CoverageTools
                 return AbortedRun(testResult);
         }
 
-        // The filter keys a state file; "run all" gets one stable key however it was spelled.
-        var stateKey = ProcessRunner.RunsAllTests(filter) ? "*" : filter!;
-
         if (testResult.Outcome == TestRunOutcome.TestsFailed)
         {
             // Coverage of the tests that did run is still valid, so keep it reachable for the
             // per-file tools. The report step is skipped: the agent's next move is fixing tests.
             if (testResult.CoverageXmlPath != null)
-                _sessionManager.SaveCoverageState(workingDir, testResult.CoverageXmlPath, stateKey, sessionId);
+                _sessionManager.SaveCoverageState(workingDir, testResult.CoverageXmlPath, sessionId);
             var s = testResult.Summary;
             return JsonHelper.Serialize(new
             {
@@ -193,25 +190,28 @@ public class CoverageTools
                 (tail.Length > 0 ? $"\nOutput (tail): {tail}" : ""));
         }
 
-        _sessionManager.SaveCoverageState(workingDir, testResult.CoverageXmlPath, stateKey, sessionId);
+        _sessionManager.SaveCoverageState(workingDir, testResult.CoverageXmlPath, sessionId);
 
         var counts = testResult.Summary is { } sum
             ? $" Passed: {sum.Passed}, Failed: {sum.Failed}, Skipped: {sum.Skipped}."
             : "";
+        var merged = Path.GetFileName(testResult.CoverageXmlPath) == ProcessRunner.MergedCoverageFile
+            ? "\nThe test project targets several frameworks: their coverage reports are merged into this one, where code covered on any framework counts as covered."
+            : "";
 
-        return $"Tests completed.{counts}\nCobertura XML at: {testResult.CoverageXmlPath}";
+        return $"Tests completed.{counts}{merged}\nCobertura XML at: {testResult.CoverageXmlPath}";
     }
 
     // --- 2. GetCoverageSummary ---
 
     [McpServerTool(Title = "Coverage summary", ReadOnly = true, Idempotent = true, OpenWorld = false)]
-    [Description("Summarise class/method coverage from Cobertura XML, sorted worst-first by branch coverage. Optional belowTarget/topN/methodsPerClass filters trim the response to the classes and methods that still need work.")]
+    [Description("Summarise class/method coverage from Cobertura XML, sorted worst-first by branch coverage: `totalClasses`, the worst `classes`, and in `moreClasses` how many were left out. Optional belowTarget/topN/methodsPerClass filters trim the response to the classes and methods that still need work.")]
     public string GetCoverageSummary(
-        [Description("Absolute path to coverage.cobertura.xml (returned by RunTestsWithCoverage). Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when the file is not found at this path.")]
+        [Description("Absolute path to coverage.cobertura.xml (returned by run_tests_with_coverage). Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when the file is not found at this path.")]
         string coberturaXmlPath,
-        [Description("Optional. When set (a fraction in [0,1], e.g. 0.8), return only classes whose line OR branch coverage is below this threshold — the ones that still need work. Omit to return every class.")]
+        [Description("Optional. When set (a fraction in [0,1], e.g. 0.8), return only classes whose line OR branch coverage is below this threshold — the ones that still need work. Omit to consider every class.")]
         double? belowTarget = null,
-        [Description("Optional. Return only the N classes with the lowest branch coverage (results are sorted worst-first). Omit to return every class.")]
+        [Description("Optional. Return only the N classes with the lowest branch coverage (results are sorted worst-first). Default 25; the rest are counted in moreClasses.")]
         int? topN = null,
         [Description("Optional. Keep at most this many lowest-branch-coverage methods per class, trimming the rest. Omit to keep every method.")]
         int? methodsPerClass = null,
@@ -240,14 +240,19 @@ public class CoverageTools
 
             if (belowTarget is double target)
                 classes = classes.Where(c => c.LineCoverage < target || c.BranchCoverage < target);
-            if (topN is int n)
-                classes = classes.Take(n);
 
-            var list = classes.ToList();
+            // Every class of a large solution is 100k+ tokens; the worst ones are what is acted on.
+            var all = classes.ToList();
+            var list = all.Take(topN ?? DefaultSummaryClasses).ToList();
             if (methodsPerClass is int mpc)
                 list = list.Select(c => c with { Methods = c.Methods.Take(mpc).ToList() }).ToList();
 
-            return JsonHelper.Serialize(list);
+            return JsonHelper.Serialize(new
+            {
+                totalClasses = all.Count,
+                classes = list,
+                moreClasses = all.Count - list.Count
+            });
         }
         catch (Exception ex)
         {
@@ -292,7 +297,7 @@ public class CoverageTools
     // --- 4. AppendTestCode ---
 
     [McpServerTool(Title = "Append test code", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
-    [Description("Insert C# code into a test file via Roslyn AST (string fallback). By default the code goes into the file's test class (the last top-level class with test attributes); pass `targetClass` or `insertAfterAnchor` to choose. Code that is not valid C# member syntax is rejected with `syntaxError` and the file is left unchanged.")]
+    [Description("Insert C# code into a test file via Roslyn AST (string fallback). By default the code goes into the file's test class (the last top-level class with test attributes); pass `targetClass` or `insertAfterAnchor` to choose. Code that is not valid C# member syntax is rejected with `syntaxError`, and a member the class already declares (same name and parameter types) with `duplicateMember`; either way the file is left unchanged. Sending exactly the same code again inserts nothing.")]
     public async Task<string> AppendTestCode(
         [Description("Absolute path to the target .cs test file. Must already exist; the file is rewritten atomically.")]
         string testFilePath,
@@ -319,6 +324,9 @@ public class CoverageTools
         {
             var result = await _codeInserter.InsertCodeAsync(testFilePath, codeToAppend, insertAfterAnchor,
                 string.IsNullOrWhiteSpace(targetClass) ? null : targetClass.Trim());
+            if (result.Method == InsertionMethod.AlreadyPresent)
+                return $"Nothing inserted: every member in codeToAppend is already in {testFilePath} exactly as given " +
+                       "(a repeated call), so the file was left unchanged.";
             var methodLabel = result.Method switch
             {
                 InsertionMethod.RoslynAst => "Roslyn AST",
@@ -336,6 +344,10 @@ public class CoverageTools
         catch (CodeSyntaxException ex)
         {
             return JsonHelper.Error("syntaxError", ex.Message);
+        }
+        catch (DuplicateMemberException ex)
+        {
+            return JsonHelper.Error("duplicateMember", ex.Message);
         }
         catch (InvalidOperationException ex)
         {
@@ -410,7 +422,7 @@ public class CoverageTools
     public string GetFileCoverage(
         [Description("Absolute path to coverage.cobertura.xml. Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when the file is not found at this path.")]
         string coberturaXmlPath,
-        [Description("Source file to look up: an absolute path (as returned by GetSourceFiles), a repo-relative path ('Services/ExampleService.cs'), or a bare file name ('ExampleService.cs'). Matched on whole path segments. If a bare name matches files in several folders, an `ambiguous` error lists them; pass a longer path.")]
+        [Description("Source file to look up: an absolute path (as returned by get_source_files), a repo-relative path ('Services/ExampleService.cs'), or a bare file name ('ExampleService.cs'). Matched on whole path segments. If a bare name matches files in several folders, an `ambiguous` error lists them; pass a longer path.")]
         string sourceFileName,
         [Description("Optional session token used to resolve the session-scoped .coverage-state-{hash} fallback. Omit for single-agent use.")]
         string? sessionId = null,
@@ -449,11 +461,11 @@ public class CoverageTools
     // --- 6b. GetCoverageGaps ---
 
     [McpServerTool(Title = "Coverage gaps per file", ReadOnly = true, Idempotent = true, OpenWorld = false)]
-    [Description("What to test next, for a whole scope in one call. For each file in the scope, reports whether it meets `targetRate` on both lines and branches; for each file below it, returns the fewest methods whose uncovered lines and branches close that file's gap, with the uncovered line ranges, the uncovered branch conditions, and the source around them. Replaces one GetFileCoverage per file plus one GetUncoveredBranches per method in each test cycle. Non-target files (entry points, DI registration, generated code, models, test projects) are skipped as in GetSourceFiles. A file marked `sourceChangedSinceRun: true` was edited after the coverage run, so its line numbers may no longer match and its source is left out: run the tests again before writing tests for it.")]
+    [Description("What to test next, for a whole scope in one call. For each file in the scope, reports whether it meets `targetRate` on both lines and branches; for each file below it, returns the fewest methods whose uncovered lines and branches close that file's gap, with the uncovered line ranges, the uncovered branch conditions, and the source around them. Replaces one get_file_coverage per file plus one get_uncovered_branches per method in each test cycle. Non-target files (entry points, DI registration, generated code, models, test projects) are skipped as in get_source_files. A file marked `sourceChangedSinceRun: true` was edited after the coverage run, so its line numbers may no longer match and its source is left out: run the tests again before writing tests for it.")]
     public string GetCoverageGaps(
-        [Description("Absolute path to coverage.cobertura.xml (returned by RunTestsWithCoverage). Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when not found.")]
+        [Description("Absolute path to coverage.cobertura.xml (returned by run_tests_with_coverage). Falls back to the session-scoped path stored in .mcp-coverage/.coverage-state when not found.")]
         string coberturaXmlPath,
-        [Description("Scope: a .cs file, a folder, a .csproj, or a comma-separated list of .cs files (e.g. one batch from GetSourceFiles).")]
+        [Description("Scope: a .cs file, a folder, a .csproj, or a comma-separated list of .cs files (e.g. one batch from get_source_files).")]
         string path,
         [Description("Target per file as a fraction in [0.0, 1.0], applied to both line and branch coverage. Pass 0.8, not 80. Default 0.8.")]
         double targetRate = 0.8,
@@ -536,6 +548,8 @@ public class CoverageTools
     }
 
     private const int MaxGapsPerCall = 20;
+    private const int DefaultSummaryClasses = 25;
+    private const int MaxBatchesPerCall = 10;
 
     // --- 6d. DescribeTestTarget ---
 
@@ -560,15 +574,19 @@ public class CoverageTools
     // --- 7. GetSourceFiles ---
 
     [McpServerTool(Title = "Discover source files", ReadOnly = true, Idempotent = true, OpenWorld = false)]
-    [Description("Discover .cs files from a file/folder/.csproj/comma-separated list and group into batches sized by `lineBudget`. For a folder or project, files that are not test targets (entry points, DI registration, generated code, data-only models) are left out of the batches and listed under `excluded` with the reason; files passed explicitly are always kept.")]
+    [Description("Discover .cs files from a file/folder/.csproj/comma-separated list and group into batches sized by `lineBudget`, at most 10 batches per call (`moreBatches` counts the rest). For a folder or project, files that are not test targets (entry points, DI registration, generated code, data-only models) are left out of the batches, counted per kind in `excludedByKind` and sampled under `excluded` with the reason; files passed explicitly are always kept.")]
     public string GetSourceFiles(
         [Description("A single .cs file, a directory to scan recursively, a .csproj file, or a comma/semicolon-separated list of .cs file paths. Build/obj output is excluded automatically.")]
         string path,
         [Description("Soft maximum total source-lines per batch. Files larger than the budget get their own batch. Must be >= 1. Default 300.")]
-        int lineBudget = 300)
+        int lineBudget = 300,
+        [Description("Batches to skip. When `moreBatches` is above 0, call again with the number of batches received so far to get the next ones; the batches are the same on every call. Default 0.")]
+        int skipBatches = 0)
     {
         if (lineBudget < 1)
             return JsonHelper.Error("invalidParameter", "lineBudget must be at least 1.");
+        if (skipBatches < 0)
+            return JsonHelper.Error("invalidParameter", "skipBatches must be 0 or more.");
 
         if (!TryDiscoverScope(path, out var discovered, out var error))
             return error;
@@ -581,8 +599,10 @@ public class CoverageTools
             bag.Add((f, lines, methodCount));
         });
 
+        // Path breaks ties: the bag's order varies, and paging needs the same batches every call.
         var files = bag
             .OrderBy(f => f.lines)
+            .ThenBy(f => f.path, StringComparer.OrdinalIgnoreCase)
             .Select(f => new { f.path, f.lines, f.methodCount })
             .ToList();
 
@@ -618,6 +638,9 @@ public class CoverageTools
         if (currentBatch.Count > 0)
             batches.Add(currentBatch);
 
+        // A large project's every file path is tens of thousands of tokens; a batch at a time is
+        // what the workflow uses.
+        var page = batches.Skip(skipBatches).Take(MaxBatchesPerCall).ToList();
         return JsonHelper.Serialize(new
         {
             scope,
@@ -626,13 +649,20 @@ public class CoverageTools
             totalLines = files.Sum(f => f.lines),
             lineBudget,
             batchCount = batches.Count,
-            batches,
+            batches = page,
+            moreBatches = Math.Max(0, batches.Count - skipBatches - page.Count),
             excludedCount = excluded.Count,
+            excludedByKind = excluded
+                .GroupBy(e => KindName(e.Reason.Kind))
+                .OrderBy(g => g.Key, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.Count()),
             excluded = ExcludedSample(excluded)
         });
     }
 
-    private const int MaxExcludedListed = 100;
+    private static string KindName(NonTargetKind kind) => JsonNamingPolicy.CamelCase.ConvertName(kind.ToString());
+
+    private const int MaxExcludedListed = 20;
 
     // Recursive .cs enumeration that does not descend into or return reparse points
     // (symlinks/junctions). A link inside the scope that points outside it would otherwise pull
@@ -656,7 +686,7 @@ public class CoverageTools
             .Select(e => (object)new
             {
                 path = e.Path,
-                kind = JsonNamingPolicy.CamelCase.ConvertName(e.Reason.Kind.ToString()),
+                kind = KindName(e.Reason.Kind),
                 reason = e.Reason.Reason
             });
 

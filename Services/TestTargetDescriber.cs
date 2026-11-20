@@ -86,6 +86,8 @@ public static class TestTargetDescriber
         ["Random"] = "inject a Random with a fixed seed",
     };
 
+    /// <summary>What a test of each class in the source file needs: dependencies, methods, seams, test type and existing tests.</summary>
+    /// <param name="sourceFilePath">The .cs file to describe.</param>
     /// <param name="isAllowed">Whether a folder may be searched for existing test files; the
     /// tool passes the allowed-root check so the search never reaches above it.</param>
     public static TestTargetDescription Describe(string sourceFilePath, Func<string, bool>? isAllowed = null)

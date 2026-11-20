@@ -135,7 +135,7 @@ public class CoberturaService : ICoberturaService
             if (exact.Count != 1)
                 throw new AmbiguousFileException(
                     $"'{sourceFileName}' matches {files.Count} files in the coverage report. Pass a longer path to pick one.",
-                    files);
+                    files.Select(f => LocalPath(f, sourceRoots)).ToList());
             candidates = candidates.Where(c => string.Equals(NormalizePath(c.File), exact[0], StringComparison.OrdinalIgnoreCase)).ToList();
             files = exact;
         }
@@ -152,10 +152,27 @@ public class CoberturaService : ICoberturaService
             .ToList();
 
         // Report the path that matched, so the caller sees which file the numbers are for.
-        return new FileCoverageResult(files[0], classes.All(c => c.MeetsTarget), classes);
+        return new FileCoverageResult(LocalPath(files[0], sourceRoots), classes.All(c => c.MeetsTarget), classes);
     }
 
     internal static string NormalizePath(string path) => path.Trim().Replace('\\', '/').TrimEnd('/');
+
+    /// <summary>
+    /// A report path as a path on this machine. Coverlet writes paths relative to a &lt;source&gt;
+    /// root (&lt;source&gt;C:/&lt;/source&gt; with filename="Users/…"), which the tools passed on as
+    /// they were: an agent handing one to describe_test_target got fileNotFound, the name being
+    /// resolved against the server's current folder. Joined to the root under which the file
+    /// exists, else to the first root; a path that exists here comes back in this OS's form.
+    /// </summary>
+    internal static string LocalPath(string file, IReadOnlyList<string> sourceRoots)
+    {
+        var candidates = IsAbsolute(file) || sourceRoots.Count == 0
+            ? [file]
+            : sourceRoots.Select(root => $"{root}/{file}").ToList();
+        foreach (var candidate in candidates)
+            if (File.Exists(candidate)) return Path.GetFullPath(candidate);
+        return candidates[0];
+    }
 
     // Checked by hand rather than with Path.IsPathRooted: reports written on Windows are
     // read on Linux in CI and the other way round, so both shapes must be recognised anywhere.
@@ -278,7 +295,9 @@ public class CoberturaService : ICoberturaService
         var model = Load(coberturaXmlPath);
         var done = new List<string>();
         var notInReport = new List<string>();
-        var below = new List<(string SourcePath, string ReportFile, List<ClassCov> Classes, double Line, double Branch,
+        // Files are named by the scope's own (absolute) paths, as notInReport always was: the
+        // report's are often relative to its <source> root (see LocalPath).
+        var below = new List<(string SourcePath, List<ClassCov> Classes, double Line, double Branch,
             int LinesToCover, int BranchesToCover)>();
 
         foreach (var sourcePath in sourceFiles)
@@ -290,13 +309,12 @@ public class CoberturaService : ICoberturaService
                 continue;
             }
 
-            var reportFile = NormalizePath(classes[0].File);
             var lines = CoverageModel.MergeLines(classes.SelectMany(c => c.Methods).SelectMany(m => m.Lines));
             if (lines.Count == 0)
             {
                 // No line data: fall back to the class-level rates the report carries.
-                if (classes.All(c => c.LineRate >= targetRate && c.BranchRate >= targetRate)) done.Add(reportFile);
-                else below.Add((sourcePath, reportFile, classes, classes.Min(c => c.LineRate), classes.Min(c => c.BranchRate), 0, 0));
+                if (classes.All(c => c.LineRate >= targetRate && c.BranchRate >= targetRate)) done.Add(sourcePath);
+                else below.Add((sourcePath, classes, classes.Min(c => c.LineRate), classes.Min(c => c.BranchRate), 0, 0));
                 continue;
             }
 
@@ -306,13 +324,14 @@ public class CoberturaService : ICoberturaService
             var linesToCover = Math.Max(0, CeilFraction(targetRate, totalLines) - coveredLines);
             var branchesToCover = totalBranches == 0 ? 0 : Math.Max(0, CeilFraction(targetRate, totalBranches) - coveredBranches);
 
-            if (linesToCover == 0 && branchesToCover == 0) done.Add(reportFile);
-            else below.Add((sourcePath, reportFile, classes, (double)coveredLines / totalLines,
+            if (linesToCover == 0 && branchesToCover == 0) done.Add(sourcePath);
+            else below.Add((sourcePath, classes, (double)coveredLines / totalLines,
                 totalBranches == 0 ? 1 : (double)coveredBranches / totalBranches, linesToCover, branchesToCover));
         }
 
         // Smallest gaps first: they finish in one cycle and leave the rest of the batch shorter.
-        var ordered = below.OrderBy(b => b.LinesToCover + b.BranchesToCover).ThenBy(b => b.ReportFile).ToList();
+        var ordered = below.OrderBy(b => b.LinesToCover + b.BranchesToCover)
+            .ThenBy(b => b.SourcePath, StringComparer.OrdinalIgnoreCase).ToList();
 
         // The report's line numbers describe each file as it was when the tests ran. A file edited
         // since then (a seam added for testing, say) would show the wrong lines as uncovered, so it
@@ -323,12 +342,12 @@ public class CoberturaService : ICoberturaService
             var changed = File.Exists(b.SourcePath) && File.GetLastWriteTimeUtc(b.SourcePath) > reportWrittenUtc;
             var (methods, closes) = PickMethods(b.Classes, b.LinesToCover, b.BranchesToCover, maxMethodsPerFile,
                 includeSource && !changed ? ReadLines(b.SourcePath) : null);
-            return new FileGap(b.ReportFile, Math.Round(b.Line, 4), Math.Round(b.Branch, 4),
+            return new FileGap(b.SourcePath, Math.Round(b.Line, 4), Math.Round(b.Branch, 4),
                 b.LinesToCover, b.BranchesToCover, closes, methods, changed);
         }).ToList();
 
         var more = ordered.Skip(maxFiles).Take(MaxFileList)
-            .Select(b => new FileRates(b.ReportFile, Math.Round(b.Line, 4), Math.Round(b.Branch, 4)))
+            .Select(b => new FileRates(b.SourcePath, Math.Round(b.Line, 4), Math.Round(b.Branch, 4)))
             .ToList();
 
         return new CoverageGapsResult(targetRate, sourceFiles.Count, done.Count, below.Count, detailed, more,

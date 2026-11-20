@@ -19,6 +19,9 @@ public static class JsonHelper
     public static string Error(string errorType, string message) =>
         JsonSerializer.Serialize(new { error = message, errorType }, Options);
 
+    /// <summary>Whether a tool's response is an error: every one, Error's or a tool's own richer shape, starts with "error".</summary>
+    public static bool IsError(string response) => response.StartsWith("{\"error\":", StringComparison.Ordinal);
+
     public static string Serialize(object value) =>
         JsonSerializer.Serialize(value, Options);
 }

@@ -40,9 +40,13 @@ public class ProcessRunner : IProcessRunner
         string testProjectPath, string? filter, string resultsDir,
         string workingDir, bool forceRestore, string? includeClass, IProgress<string>? progress, CancellationToken ct)
     {
+        var dotnet = FindDotnet(Environment.ProcessPath, Environment.GetEnvironmentVariable("PATH"),
+                         Environment.GetEnvironmentVariable("DOTNET_ROOT"))
+                     ?? throw new System.ComponentModel.Win32Exception(
+                         "dotnet was not found next to the dotnet running this server, on PATH, or under DOTNET_ROOT");
         var psi = new ProcessStartInfo
         {
-            FileName = "dotnet",
+            FileName = dotnet,
             WorkingDirectory = workingDir,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -242,13 +246,55 @@ public class ProcessRunner : IProcessRunner
             counts.GetValueOrDefault("skipped"), []);
     }
 
-    // coverlet writes <guid>/coverage.cobertura.xml; Microsoft's extension writes
-    // <guid>.cobertura.xml at the top and a copy deeper down. Take the shallowest.
-    internal static string? FindCoverageXml(string resultsDir) =>
-        Directory.GetFiles(resultsDir, "*.cobertura.xml", SearchOption.AllDirectories)
-            .OrderBy(p => p.Count(c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar))
-            .ThenBy(p => p, StringComparer.Ordinal)
-            .FirstOrDefault();
+    /// <summary>
+    /// The dotnet executable, by absolute path. Started as plain "dotnet", Windows' CreateProcess
+    /// (and .NET's own lookup on Linux and macOS) tries the server's current folder before PATH,
+    /// and MCP clients start servers in the user's repository: a dotnet.exe committed there ran
+    /// instead of the SDK, even for a run on another project. Looked for as the dotnet host
+    /// running this server (a dnx launch), then on PATH, skipping relative entries (they are the
+    /// current folder too), then under DOTNET_ROOT. Null when none has it.
+    /// </summary>
+    internal static string? FindDotnet(string? processPath, string? pathVariable, string? dotnetRoot)
+    {
+        var exe = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+        if (processPath != null && string.Equals(Path.GetFileName(processPath), exe, StringComparison.OrdinalIgnoreCase))
+            return processPath;
+        var dirs = (pathVariable ?? "").Split(Path.PathSeparator).Append(dotnetRoot ?? "")
+            .Select(d => d.Trim().Trim('"'))
+            .Where(Path.IsPathFullyQualified);
+        return dirs.Select(d => Path.Combine(d, exe)).FirstOrDefault(File.Exists);
+    }
+
+    internal const string MergedCoverageFile = "merged.cobertura.xml";
+
+    /// <summary>
+    /// The run's coverage report. coverlet writes &lt;guid&gt;/coverage.cobertura.xml; Microsoft's
+    /// extension writes &lt;guid&gt;.cobertura.xml at the top and a copy deeper down, so only the
+    /// shallowest files are reports of their own. Several of those come from a multi-targeted test
+    /// project, one per target framework: they are merged into one (see CoberturaMerge), where the
+    /// first in name order used to be taken, a random pick between GUID-named folders.
+    /// </summary>
+    internal static string? FindCoverageXml(string resultsDir)
+    {
+        static int Depth(string p) => p.Count(c => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar);
+        var files = Directory.GetFiles(resultsDir, "*.cobertura.xml", SearchOption.AllDirectories);
+        if (files.Length == 0) return null;
+        var depth = files.Min(Depth);
+        var reports = files.Where(f => Depth(f) == depth).Order(StringComparer.Ordinal).ToList();
+        if (reports.Count == 1) return reports[0];
+
+        try
+        {
+            var merged = Path.Combine(resultsDir, MergedCoverageFile);
+            CoberturaMerge.Merge(reports.Select(Helpers.XmlFile.Load).ToList()).Save(merged);
+            return merged;
+        }
+        catch (Exception ex) when (ex is System.Xml.XmlException or IOException or UnauthorizedAccessException)
+        {
+            // A report cut short (a killed test host): the others can't be trusted to add up either.
+            return reports[0];
+        }
+    }
 
     private static bool HasTrxExtension(string testProjectPath)
     {

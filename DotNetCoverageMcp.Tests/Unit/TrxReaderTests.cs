@@ -37,6 +37,30 @@ public class TrxReaderTests : IDisposable
     }
 
     [Fact]
+    public void Read_AFailureWithoutDetailsOrCounters_StillCountsAsAFailure()
+    {
+        // A writer that left out <Output> and <Counters>: the failure is still named, with no
+        // message or stack rather than an exception.
+        var path = Path.Combine(_dir, "bare.trx");
+        File.WriteAllText(path, """
+            <TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+              <Results><UnitTestResult testName="Ns.T.Fails" outcome="Failed" /></Results>
+            </TestRun>
+            """);
+
+        var s = TrxReader.Read([path])!;
+
+        (s.Total, s.Passed, s.Failed).Should().Be((0, 0, 0));
+        s.Failures.Should().ContainSingle().Which.Should().Be(new TestFailure("Ns.T.Fails", "", null));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("no frames here, only text")]
+    public void TrimStack_WithoutFrames_IsNull(string stack) =>
+        TrxReader.TrimStack(stack).Should().BeNull();
+
+    [Fact]
     public void Read_CountsAndDerivesSkipped()
     {
         // xUnit skips appear only as total - passed - failed; notExecuted stays 0.

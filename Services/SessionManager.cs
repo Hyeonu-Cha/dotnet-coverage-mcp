@@ -10,7 +10,7 @@ public interface ISessionManager
     string ComputeKey(string input);
     string ComputeSuffix(string? sessionId);
     string? ResolveCoberturaPath(string coberturaXmlPath, string? sessionId);
-    void SaveCoverageState(string workingDir, string xmlPath, string filter, string? sessionId);
+    void SaveCoverageState(string workingDir, string xmlPath, string? sessionId);
     int Cleanup(string workingDir, string? sessionId, int maxAgeMinutes);
 }
 
@@ -100,24 +100,15 @@ public class SessionManager : ISessionManager
         return resolved;
     }
 
-    public void SaveCoverageState(string workingDir, string xmlPath, string filter, string? sessionId)
+    // A state file keyed by the test filter was written too, and read only when a sessionId
+    // happened to equal the filter text; cleanup never removed it, so they piled up.
+    public void SaveCoverageState(string workingDir, string xmlPath, string? sessionId)
     {
         var stateDir = Path.Combine(workingDir, ".mcp-coverage");
         Directory.CreateDirectory(stateDir);
 
-        // Always save a filter-keyed state file so ResolveCoberturaPath can find it
-        // when sessionId matches the filter (original behavior)
-        var filterKey = ComputeKey(filter);
-        _fileService.AtomicWriteFile(Path.Combine(stateDir, $".coverage-state-{filterKey}"), xmlPath);
-
-        // If sessionId is different from filter, also save a session-keyed file
-        // so other tools can resolve via their sessionId parameter
         if (sessionId != null)
-        {
-            var sessionKey = ComputeKey(sessionId);
-            if (sessionKey != filterKey)
-                _fileService.AtomicWriteFile(Path.Combine(stateDir, $".coverage-state-{sessionKey}"), xmlPath);
-        }
+            _fileService.AtomicWriteFile(Path.Combine(stateDir, $".coverage-state-{ComputeKey(sessionId)}"), xmlPath);
 
         // Global fallback
         _fileService.AtomicWriteFile(Path.Combine(stateDir, ".coverage-state"), xmlPath);

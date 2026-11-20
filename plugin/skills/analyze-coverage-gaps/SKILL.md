@@ -1,6 +1,6 @@
 ---
 name: analyze-coverage-gaps
-description: "Identify uncovered branches and coverage changes for a specific .NET method. USE FOR: finding exactly which branch conditions are untested in a method, comparing current coverage against the previous baseline to see what improved. Calls GetUncoveredBranches and GetCoverageDiff via dotnet-coverage-mcp MCP tools. DO NOT USE FOR: running tests (use run-coverage), full iterative improvement loops (use improve-test-coverage)."
+description: "Identify uncovered branches and coverage changes for a specific .NET method. USE FOR: finding exactly which branch conditions are untested in a method, comparing current coverage against the previous baseline to see what improved. Calls get_uncovered_branches and get_coverage_diff via dotnet-coverage-mcp MCP tools. DO NOT USE FOR: running tests (use run-coverage), full iterative improvement loops (use improve-test-coverage)."
 ---
 
 # Analyze Coverage Gaps
@@ -29,7 +29,7 @@ Identify which specific branch conditions are uncovered in a .NET method, and co
 ## Workflow
 
 ### Step 1: Find uncovered branches
-Call `GetUncoveredBranches` with `coberturaXmlPath` and `methodName`.
+Call `get_uncovered_branches` with `coberturaXmlPath` and `methodName`.
 
 Returns JSON:
 ```json
@@ -51,7 +51,7 @@ For each uncovered branch, describe in plain language what condition is missing:
 - Note the line number so tests can be targeted precisely
 
 ### Step 3: Compare against previous baseline (optional)
-If a previous coverage run exists, call `GetCoverageDiff` with `coberturaXmlPath`.
+If a previous coverage run exists, call `get_coverage_diff` with `coberturaXmlPath`.
 
 Returns three sections:
 - `cycleImprovement` — overall delta in line and branch rates
@@ -65,7 +65,7 @@ Present:
 3. Suggested test scenario for each uncovered branch
 
 ## Validation
-- [ ] `GetUncoveredBranches` returned results for the target method
+- [ ] `get_uncovered_branches` returned results for the target method
 - [ ] Each uncovered branch is explained in plain language
 - [ ] Diff summary is shown if a baseline exists
 - [ ] Suggested test scenarios match the uncovered conditions

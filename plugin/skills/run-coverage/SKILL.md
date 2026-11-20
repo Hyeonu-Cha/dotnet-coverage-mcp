@@ -1,6 +1,6 @@
 ---
 name: run-coverage
-description: "Run .NET tests with code coverage and display a summary. USE FOR: generating a coverage report for a test project, getting baseline line/branch coverage per class and method, checking current coverage percentages. Calls RunTestsWithCoverage then GetCoverageSummary via dotnet-coverage-mcp MCP tools. Requires testProjectPath and a test filter string. DO NOT USE FOR: iterative improvement loops (use improve-test-coverage), finding specific uncovered branches (use analyze-coverage-gaps)."
+description: "Run .NET tests with code coverage and display a summary. USE FOR: generating a coverage report for a test project, getting baseline line/branch coverage per class and method, checking current coverage percentages. Calls run_tests_with_coverage then get_coverage_summary via dotnet-coverage-mcp MCP tools. Requires testProjectPath and a test filter string. DO NOT USE FOR: iterative improvement loops (use improve-test-coverage), finding specific uncovered branches (use analyze-coverage-gaps)."
 ---
 
 # Run Tests with Coverage
@@ -32,22 +32,22 @@ Run a .NET test project with code coverage enabled and display a structured summ
 ## Workflow
 
 ### Step 1: Run tests with coverage
-Call `RunTestsWithCoverage` with the provided `testProjectPath` and `filter`.
+Call `run_tests_with_coverage` with the provided `testProjectPath` and `filter`.
 
 Pass `includeClass` only when coverage should be scoped to a single class (e.g. the specific class under test). Leave it unset for broad filters that span multiple classes — otherwise coverage numbers will be artificially zeroed for classes outside the include pattern.
 
 The tool returns the path to `coverage.cobertura.xml`, the report every other coverage tool reads.
 
 ### Step 2: Get coverage summary
-Call `GetCoverageSummary` with the `coberturaXmlPath` returned from Step 1.
+Call `get_coverage_summary` with the `coberturaXmlPath` returned from Step 1.
 
-Returns a JSON array sorted by branch coverage (lowest first) with:
+Returns `totalClasses`, `classes` sorted by branch coverage (lowest first) and `moreClasses`, how many were left out (25 classes come back unless `topN` says otherwise). Each class has:
 - Class name
 - `lineCoverage` and `branchCoverage` (0.0–1.0)
 - `methods` array sorted by branch coverage ascending
 
 ### Step 3: Check per-file coverage (optional)
-If a broad filter was used, call `GetFileCoverage` for specific source files to check if they meet the 80% target.
+If a broad filter was used, call `get_file_coverage` for specific source files to check if they meet the 80% target.
 
 Returns `allMeetTarget: true/false` per file — useful for deciding which files need work.
 
@@ -64,8 +64,8 @@ Class: MyService
 ```
 
 ## Validation
-- [ ] `RunTestsWithCoverage` completed without errors
-- [ ] The `coverage.cobertura.xml` path was returned and passed to `GetCoverageSummary`
+- [ ] `run_tests_with_coverage` completed without errors
+- [ ] The `coverage.cobertura.xml` path was returned and passed to `get_coverage_summary`
 - [ ] Coverage summary lists classes and methods with percentages
 - [ ] Methods below 80% are visually highlighted
 
@@ -77,4 +77,4 @@ Class: MyService
 | `noTestsMatched` error | The filter selected nothing: omit it to run every test, or use a shorter name |
 | `projectBusy` error | Another build, IDE or test host held the output files; run again, nothing in the tests needs fixing |
 | `testRunAborted` error | A test crashed or hung the test host. `crash` shows the message and frames; otherwise the cause is among `unfinishedTests`. Fix that test and run again; for a test that legitimately runs long, raise `COVERAGE_MCP_HANG_TIMEOUT_SECONDS` |
-| Cobertura XML not found | Check the `coverage.cobertura.xml` path returned by `RunTestsWithCoverage`; ensure tests ran successfully |
+| Cobertura XML not found | Check the `coverage.cobertura.xml` path returned by `run_tests_with_coverage`; ensure tests ran successfully |

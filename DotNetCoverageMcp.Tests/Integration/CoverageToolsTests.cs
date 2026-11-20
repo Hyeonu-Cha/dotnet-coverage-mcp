@@ -115,7 +115,7 @@ public class CoverageToolsTests : IDisposable
         var result = await _sut.RunTestsWithCoverage(_proj, filter, _workDir);
 
         result.Should().Contain("coverage.xml");
-        _sessionManager.Verify(s => s.SaveCoverageState(_workDir, "/coverage.xml", "*", null), Times.Once);
+        _sessionManager.Verify(s => s.SaveCoverageState(_workDir, "/coverage.xml", null), Times.Once);
     }
 
     [Fact]
@@ -163,7 +163,7 @@ public class CoverageToolsTests : IDisposable
         doc.RootElement.GetProperty("failures")[0].GetProperty("test").GetString().Should().Be("Ns.CalcTests.Add_Fails");
         doc.RootElement.GetProperty("coberturaXmlPath").GetString().Should().Be("/coverage.xml");
         // Coverage of the passing tests stays usable by the per-file tools.
-        _sessionManager.Verify(s => s.SaveCoverageState(_workDir, "/coverage.xml", "Ns.Class", null), Times.Once);
+        _sessionManager.Verify(s => s.SaveCoverageState(_workDir, "/coverage.xml", null), Times.Once);
     }
 
     [Fact]
@@ -186,7 +186,7 @@ public class CoverageToolsTests : IDisposable
         // Half a run's coverage would make the rest of the suite's code look untested.
         root.TryGetProperty("coberturaXmlPath", out _).Should().BeFalse();
         _sessionManager.Verify(s => s.SaveCoverageState(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -199,7 +199,7 @@ public class CoverageToolsTests : IDisposable
         AssertError(result, "noTestsMatched");
         result.Should().Contain("DoesNotExist");
         _sessionManager.Verify(s => s.SaveCoverageState(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -328,7 +328,21 @@ public class CoverageToolsTests : IDisposable
         var result = await _sut.RunTestsWithCoverage(_proj, "Ns.Class", _workDir);
 
         result.Should().Be("Tests completed.\nCobertura XML at: /coverage.xml");
-        _sessionManager.Verify(s => s.SaveCoverageState(_workDir, "/coverage.xml", "Ns.Class", null), Times.Once);
+        _sessionManager.Verify(s => s.SaveCoverageState(_workDir, "/coverage.xml", null), Times.Once);
+    }
+
+    [Fact]
+    public async Task RunTestsWithCoverage_MergedReport_SaysSoBeforeThePathLine()
+    {
+        var merged = $"/r/{ProcessRunner.MergedCoverageFile}";
+        _processRunner.Setup(p => p.RunDotnetTestAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>(), It.IsAny<IProgress<string>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TestRunResult(TestRunOutcome.Success, "", "", 0, merged));
+
+        var result = await _sut.RunTestsWithCoverage(_proj, null, _workDir);
+
+        result.Should().Contain("targets several frameworks").And.EndWith($"\nCobertura XML at: {merged}");
     }
 
     [Fact]
@@ -374,10 +388,30 @@ public class CoverageToolsTests : IDisposable
         var result = _sut.GetCoverageSummary(path, belowTarget: 0.8);
 
         using var doc = JsonDocument.Parse(result);
-        var classes = doc.RootElement.EnumerateArray()
+        var classes = doc.RootElement.GetProperty("classes").EnumerateArray()
             .Select(e => e.GetProperty("class").GetString()).ToList();
         // HighCov (0.95/0.90) is excluded; the rest are returned worst-branch-first.
         classes.Should().Equal("LowCov", "MidCov");
+        doc.RootElement.GetProperty("totalClasses").GetInt32().Should().Be(2);
+        doc.RootElement.GetProperty("moreClasses").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public void GetCoverageSummary_WithoutTopN_ReturnsTheWorst25AndCountsTheRest()
+    {
+        // Every class of a large solution came back by default: 100k+ tokens.
+        const string path = "/coverage.cobertura.xml";
+        _sessionManager.Setup(s => s.ResolveCoberturaPath(path, null)).Returns(path);
+        _coberturaService.Setup(c => c.SummarizeClasses(path)).Returns(
+            Enumerable.Range(0, 30).Select(i => new SummaryClass($"C{i:00}", i / 100.0, i / 100.0, [])).ToList());
+
+        using var doc = JsonDocument.Parse(_sut.GetCoverageSummary(path));
+
+        var classes = doc.RootElement.GetProperty("classes").EnumerateArray().ToList();
+        classes.Should().HaveCount(25);
+        classes[0].GetProperty("class").GetString().Should().Be("C00", "worst first");
+        doc.RootElement.GetProperty("totalClasses").GetInt32().Should().Be(30);
+        doc.RootElement.GetProperty("moreClasses").GetInt32().Should().Be(5);
     }
 
     [Fact]
@@ -395,8 +429,9 @@ public class CoverageToolsTests : IDisposable
         var result = _sut.GetCoverageSummary(path, topN: 2, methodsPerClass: 1);
 
         using var doc = JsonDocument.Parse(result);
-        var classes = doc.RootElement.EnumerateArray().ToList();
+        var classes = doc.RootElement.GetProperty("classes").EnumerateArray().ToList();
         classes.Should().HaveCount(2);                                  // topN
+        doc.RootElement.GetProperty("moreClasses").GetInt32().Should().Be(1);
         classes[0].GetProperty("class").GetString().Should().Be("C");   // worst branch first
         classes[1].GetProperty("class").GetString().Should().Be("A");
         classes[1].GetProperty("methods").GetArrayLength().Should().Be(1); // methodsPerClass
@@ -494,6 +529,42 @@ public class CoverageToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task AppendTestCode_DuplicateMember_ReturnsDuplicateMember()
+    {
+        var tempFile = CreateTempCsFile();
+        try
+        {
+            _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
+                .ThrowsAsync(new DuplicateMemberException("CalcTests already declares Adds() (different code)"));
+
+            AssertError(await _sut.AppendTestCode(tempFile, "public void Adds() { }"), "duplicateMember");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task AppendTestCode_RepeatedCall_SaysNothingWasInserted()
+    {
+        var tempFile = CreateTempCsFile();
+        try
+        {
+            _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
+                .ReturnsAsync(new InsertionResult(InsertionMethod.AlreadyPresent, "class C { }"));
+
+            var result = await _sut.AppendTestCode(tempFile, "public void Adds() { }");
+
+            result.Should().StartWith("Nothing inserted").And.NotContain("Successfully");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public async Task AppendTestCode_SyntaxError_ReturnsSyntaxError()
     {
         var tempFile = CreateTempCsFile();
@@ -528,6 +599,37 @@ public class CoverageToolsTests : IDisposable
         {
             File.Delete(tempFile);
         }
+    }
+
+    [Theory]
+    [InlineData(InsertionMethod.StringFallback, "via string fallback in")]
+    [InlineData(InsertionMethod.StringFallbackNormalized, "whitespace-normalized")]
+    [InlineData(InsertionMethod.Appended, "inside last class")]
+    public async Task AppendTestCode_FallbackInsert_NamesHowTheCodeWentIn(InsertionMethod method, string label)
+    {
+        var tempFile = CreateTempCsFile();
+        try
+        {
+            _codeInserter.Setup(c => c.InsertCodeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
+                .ReturnsAsync(new InsertionResult(method, "content"));
+
+            (await _sut.AppendTestCode(tempFile, "code", "anchor")).Should().Contain(label);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void MissingExtensionDetail_QuotesTheLinesNamingThePackage_ElseTheOutputTail()
+    {
+        const string output = "Build succeeded.\n  Unknown option '--coverage'\n  The option is provided by Microsoft.Testing.Extensions.CodeCoverage\n";
+
+        CoverageTools.MissingExtensionDetail(output, "").Should().Be(
+            "Unknown option '--coverage'\nThe option is provided by Microsoft.Testing.Extensions.CodeCoverage");
+        CoverageTools.MissingExtensionDetail("something else", "")
+            .Should().StartWith("The test application rejected an option (exit code 5).").And.Contain("something else");
     }
 
     // --- GetFileCoverage ---
