@@ -70,9 +70,9 @@ public class CoverageGapsTests : IDisposable
         var result = _sut.GetCoverageGaps(report, [good, bad], 0.8, 5, 5, includeSource: false);
 
         result.FilesDone.Should().Be(1);
-        result.Done.Should().Equal("Good.cs");
+        result.Done.Should().Equal([good], "files are named by the scope's own paths, not the report's relative ones");
         var file = result.Remaining.Single();
-        file.File.Should().Be("Bad.cs");
+        file.File.Should().Be(bad);
         // 11 lines, 5 covered; 80% needs ceil(8.8) = 9, so 4 more.
         file.LinesToCover.Should().Be(4);
         // Ranked by absolute gain: the long half-covered method first, and it alone closes the gap.
@@ -134,8 +134,8 @@ public class CoverageGapsTests : IDisposable
 
         var result = _sut.GetCoverageGaps(report, [a, b], 0.8, maxFiles: 1, 5, false);
 
-        result.Remaining.Single().File.Should().Be("B.cs");
-        result.MoreRemaining.Single().File.Should().Be("A.cs");
+        result.Remaining.Single().File.Should().Be(b);
+        result.MoreRemaining.Single().File.Should().Be(a);
         result.FilesRemaining.Should().Be(2);
     }
 
@@ -223,7 +223,7 @@ public class CoverageGapsTests : IDisposable
         root.TryGetProperty("filesInScope", out _).Should().BeTrue(root.ToString());
         root.GetProperty("filesInScope").GetInt32().Should().Be(1, "Program.cs is an entry point");
         root.GetProperty("excludedCount").GetInt32().Should().Be(1);
-        root.GetProperty("remaining")[0].GetProperty("file").GetString().Should().Be("OrderService.cs");
+        root.GetProperty("remaining")[0].GetProperty("file").GetString().Should().Be(Path.Combine(_dir, "OrderService.cs"));
 
         JsonDocument.Parse(tools.GetCoverageGaps(report, _dir, targetRate: 80)).RootElement
             .GetProperty("errorType").GetString().Should().Be("invalidParameter");

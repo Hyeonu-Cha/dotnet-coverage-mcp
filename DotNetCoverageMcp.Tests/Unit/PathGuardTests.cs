@@ -192,6 +192,14 @@ public class PathGuardTests : IDisposable
         guard.IsWithinAllowedRoot("").Should().BeFalse();
     }
 
+    [Fact]
+    public void IsWithinAllowedRoot_PathThatIsNoPath_ReturnsFalse() =>
+        CreateGuardWithRoot(_tempRoot).IsWithinAllowedRoot("a\0b").Should().BeFalse();
+
+    [Fact]
+    public void IsWithinAllowedRoot_NoRoot_AllowsAnyPath() =>
+        CreateGuardWithRoot(null).IsWithinAllowedRoot(Path.Combine(Path.GetTempPath(), "anywhere.cs")).Should().BeTrue();
+
     // Creates a directory symlink, or returns false when the platform refuses (Windows without
     // Developer Mode / admin). Lets the symlink tests run on Linux/macOS CI and skip elsewhere.
     private static bool TryCreateDirectorySymlink(string link, string target)

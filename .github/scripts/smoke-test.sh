@@ -26,21 +26,27 @@ else
   done
 fi
 
-request() {
-  printf '%s\n' \
-    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1.0"}}}' \
-    '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-    '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-  # Keep stdin open: the server shuts down on EOF, and closing it straight after
-  # the last request makes it exit before it has written any response.
-  sleep 10
-}
-
 # MCP clients start the server in the user's repository. Start it in a folder whose
 # appsettings.json is malformed: the server must not load the repository's settings
 # (before 2.0.7 it did, and crashed on startup there).
 mkdir -p "$WORK/repo"
 printf '{ "Logging": { not json' > "$WORK/repo/appsettings.json"
+printf 'public class Calc { public int Add(int a, int b) => a > 0 ? a + b : b; }\n' > "$WORK/repo/Calc.cs"
+# The folder as the server's OS names it: Git Bash's /tmp paths mean nothing to a Windows program.
+REPO=$(cygpath -m "$WORK/repo" 2>/dev/null || echo "$WORK/repo")
+
+request() {
+  printf '%s\n' \
+    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1.0"}}}' \
+    '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+    '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
+    "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"get_source_files\",\"arguments\":{\"path\":\"$REPO\"}}}" \
+    "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"get_source_files\",\"arguments\":{\"path\":\"$REPO/missing\"}}}"
+  # Keep stdin open: the server shuts down on EOF, and closing it straight after
+  # the last request makes it exit before it has written any response.
+  sleep 10
+}
+
 (cd "$WORK/repo" && request | "$WORK/tool/dotnet-coverage-mcp" > "$WORK/out.json" 2> "$WORK/err.log") || true
 
 # The tools/list reply is the line with id 2; count the tool entries in it.
@@ -64,4 +70,10 @@ readonly=$(echo "$tools" | grep -o '"readOnlyHint":true' | wc -l | tr -d ' ')
 
 grep '"id":1' "$WORK/out.json" | grep -q '"instructions":' || fail "initialize result has no server instructions"
 
-echo "Smoke test passed: $count tools listed, annotations and instructions present."
+# Tool errors come back flagged isError (clients show them as failed calls); answers don't.
+listed=$(grep '"id":3' "$WORK/out.json" || true)
+echo "$listed" | grep -q 'totalFiles' || fail "get_source_files did not list the folder"
+if echo "$listed" | grep -q '"isError":true'; then fail "a successful tool call is flagged isError"; fi
+grep '"id":4' "$WORK/out.json" | grep -q '"isError":true' || fail "a tool error is not flagged isError"
+
+echo "Smoke test passed: $count tools listed, annotations, instructions and error flags present."

@@ -22,8 +22,8 @@ Renaming the workflow file or the repository, or adding an `environment:` to the
 ## Cutting a release
 
 1. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and add a new empty `## [Unreleased]` above it.
-2. Set `version` in `server.json` (top-level and `packages[0]`) to `X.Y.Z`.
-3. Merge both as a `Release X.Y.Z` pull request, then tag the merge commit:
+2. Set `version` in `server.json` (top-level and `packages[0]`) and in `plugin/plugin.json` to `X.Y.Z`. The workflow refuses a tag either one disagrees with.
+3. Merge them as a `Release X.Y.Z` pull request, then tag the merge commit:
 
 ```bash
 git checkout main && git pull
@@ -33,9 +33,14 @@ git push origin vX.Y.Z
 
 The package version is injected from the git tag via `-p:Version=` in the release workflow, so there is no `<Version>` element to edit in the csproj.
 
-The workflow builds, tests and packs, writes a CycloneDX SBOM, attests the package's build provenance and SBOM (see [SECURITY.md](SECURITY.md#verifying-a-release)), pushes the package to NuGet, and creates a GitHub Release with the `.nupkg`, the SBOM and auto-generated notes. Its second job, `mcp-registry`, then waits for NuGet to index the version (usually 5–20 minutes), installs it from nuget.org and runs the smoke test on it, and publishes `server.json` to the [official MCP registry](https://registry.modelcontextprotocol.io), logging in with the workflow's GitHub OIDC token. Nothing to do by hand.
+The workflow runs four jobs, and nothing is done by hand:
 
-If that job fails (NuGet took over an hour, or the registry was down), use **Re-run failed jobs** on the run; it retries only the registry step.
+1. `build`, with a read-only token: builds, tests and packs, and writes a CycloneDX SBOM.
+2. `publish`: attests the package's build provenance and SBOM (see [SECURITY.md](SECURITY.md#verifying-a-release)), pushes the package to NuGet, and creates a GitHub Release with the `.nupkg`, the SBOM and auto-generated notes. It runs nothing but those steps on the files `build` made, since it holds the rights to publish.
+3. `verify-nuget`: waits for NuGet to index the version (usually 5–20 minutes), installs it from nuget.org and runs the smoke test on it, without publishing rights.
+4. `mcp-registry`: publishes `server.json` to the [official MCP registry](https://registry.modelcontextprotocol.io), logging in with the workflow's GitHub OIDC token.
+
+If a later job fails (NuGet took over an hour, or the registry was down), use **Re-run failed jobs** on the run; it retries only what failed, not the NuGet push.
 
 ## Submitting to the MCP registry by hand
 

@@ -12,6 +12,11 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+    # Microsoft.Extensions.* majors follow .NET's: 11.x targets .NET 11, while the tool stays
+    # on .NET 10 (LTS) and net10.0. Moved together with the target framework, on purpose.
+    ignore:
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"

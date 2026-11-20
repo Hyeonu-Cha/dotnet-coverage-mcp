@@ -18,7 +18,11 @@ public class SampleProjectFixture : IDisposable
     /// Switch the copy to Microsoft.Testing.Platform: the test project from Fixtures/Mtp and a
     /// global.json at the copy's root that puts `dotnet test` in MTP mode.
     /// </param>
-    protected SampleProjectFixture(bool mtp)
+    /// <param name="multiTarget">
+    /// Target net8.0 as well as net10.0, with one test that only the net8.0 build compiles, so
+    /// each framework's run covers something the other's doesn't. Needs the .NET 8 runtime.
+    /// </param>
+    protected SampleProjectFixture(bool mtp, bool multiTarget = false)
     {
         Root = Path.Combine(Path.GetTempPath(), $"coverage-mcp-e2e-{Guid.NewGuid():N}");
         CopyDirectory(Path.Combine(AppContext.BaseDirectory, "Fixtures", "SampleProject"), Root);
@@ -27,6 +31,23 @@ public class SampleProjectFixture : IDisposable
             var mtpDir = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Mtp");
             File.Copy(Path.Combine(mtpDir, "SampleLib.Tests.csproj"), TestProjectPath, overwrite: true);
             File.Copy(Path.Combine(mtpDir, "global.json"), Path.Combine(Root, "global.json"));
+        }
+        if (multiTarget)
+        {
+            foreach (var project in new[] { TestProjectPath, Path.Combine(Root, "SampleLib", "SampleLib.csproj") })
+                File.WriteAllText(project, File.ReadAllText(project).Replace(
+                    "<TargetFramework>net10.0</TargetFramework>", "<TargetFrameworks>net8.0;net10.0</TargetFrameworks>"));
+            File.WriteAllText(Path.Combine(Root, "SampleLib.Tests", "Net8OnlyTests.cs"), """
+                namespace SampleLib.Tests;
+
+                public class Net8OnlyTests
+                {
+                #if NET8_0
+                    [Fact]
+                    public void Twice_OnNet8() => Assert.Equal(4, new Calculator().Twice(2));
+                #endif
+                }
+                """);
         }
         RunDotnet("restore", TestProjectPath);
     }

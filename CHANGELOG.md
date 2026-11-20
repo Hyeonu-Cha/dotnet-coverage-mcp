@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A test project with several target frameworks writes one coverage report per framework, and
+  `run_tests_with_coverage` returned whichever sorted first. They sit in GUID-named folders, so
+  the pick changed from run to run, and code covered on one framework only (`#if NET8_0`) came
+  and went. The reports are now merged into one (`merged.cobertura.xml`), where a line or branch
+  outcome covered on any framework counts as covered, and the response says so.
+- `append_test_code` inserted the same code again when it was sent twice (a retried call, say),
+  reported success, and the next build failed with CS0111. Code already in the class exactly as
+  given now inserts nothing and says so; a member whose name and parameter types the class
+  already has is refused with `duplicateMember`, naming it, and the file is left unchanged.
+- `get_coverage_gaps` named files by the report's paths, which coverlet writes relative to a
+  `<source>` root (`<source>C:/</source>` with `filename="Users/…"`): an agent handing one to
+  `describe_test_target` got `fileNotFound`. Files are now named by their full paths, as
+  `notInReport` always was, and `get_file_coverage` returns the file's path on this machine.
+
+### Changed
+- `get_coverage_summary` returns the 25 worst classes unless `topN` says otherwise, in an object
+  with `totalClasses` and `moreClasses` (how many were left out); it was a bare array of every
+  class, over 100k tokens for a large solution.
+- `get_source_files` returns at most 10 batches per call, with `moreBatches` and a
+  `skipBatches` parameter for the rest; every file of a large project in one response was tens
+  of thousands of tokens. Excluded files are counted per kind in `excludedByKind`, with a
+  sample of 20 (was 100) under `excluded`, and the batches are the same on every call.
+- Tool errors are flagged `isError: true`, as the MCP spec asks, so clients show them as failed
+  calls. The response text is unchanged.
+- Tool descriptions, the README and the skills name tools as clients list them
+  (`get_file_coverage`), not by their C# method names (`GetFileCoverage`).
+- `plugin/plugin.json` carries the release version (it said 1.0.0), and the release workflow
+  checks it against the tag. Dependabot no longer proposes `Microsoft.Extensions.*` majors, which
+  follow .NET's and move with the target framework.
+
+### Removed
+- The state file keyed by the test filter (`.coverage-state-<hash of the filter>`). It was read
+  only when a `sessionId` happened to equal the filter text, and nothing cleaned it up.
+
+### Security
+- `dotnet` is started by absolute path: the dotnet host running the server, else the first on
+  `PATH` (relative entries skipped), else under `DOTNET_ROOT`. Started by bare name, Windows (and
+  .NET's own lookup on Linux and macOS) tried the server's current folder first, which MCP
+  clients set to the repository, so a `dotnet.exe` committed there ran instead of the SDK.
+- The release workflow restores, builds, tests and packs in a job with a read-only token. The
+  job that holds NuGet Trusted Publishing and attestation rights only downloads that package and
+  publishes it, and the smoke test of the published package runs in a job without publishing
+  rights. Before, third-party build and test code ran where it could have minted the token that
+  publishes to NuGet.
+
 ## [2.0.7] - 2026-11-20
 
 ### Fixed
@@ -543,3 +589,16 @@ Highlights:
   `reportgenerator` invocations
   (`COVERAGE_MCP_DOTNET_TEST_TIMEOUT_MS` overrides).
 - Atomic writes for state files and inserted test code.
+
+[Unreleased]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.7...HEAD
+[2.0.7]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.6...v2.0.7
+[2.0.6]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.5...v2.0.6
+[2.0.5]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.4...v2.0.5
+[2.0.4]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.3...v2.0.4
+[2.0.3]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.2...v2.0.3
+[2.0.2]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.1...v2.0.2
+[2.0.1]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v1.0.0...v2.0.0
+[1.0.0]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v0.1.1...v1.0.0
+[0.1.1]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Hyeonu-Cha/dotnet-coverage-mcp/releases/tag/v0.1.0

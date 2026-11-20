@@ -221,6 +221,74 @@ public class ProcessRunnerTests
         }
     }
 
+    [Fact]
+    public void FindCoverageXml_OneReportPerTargetFramework_MergesThem()
+    {
+        // A multi-targeted test project: one <guid>/coverage.cobertura.xml per framework. The
+        // first in name order was taken, a random pick between the GUID-named folders.
+        var dir = Path.Combine(Path.GetTempPath(), $"fcx-{Guid.NewGuid():N}");
+        string Report(int hits) => $"""
+            <coverage line-rate="0" branch-rate="0"><packages><package name="P"><classes>
+              <class name="C" filename="C.cs" line-rate="0" branch-rate="1"><methods>
+                <method name="M" signature="()" line-rate="0" branch-rate="1"><lines><line number="1" hits="{hits}" branch="False" /></lines></method>
+              </methods><lines><line number="1" hits="{hits}" branch="False" /></lines></class>
+            </classes></package></packages></coverage>
+            """;
+        foreach (var (guid, hits) in new[] { ("0000", 0), ("ffff", 3) })
+        {
+            Directory.CreateDirectory(Path.Combine(dir, guid));
+            File.WriteAllText(Path.Combine(dir, guid, "coverage.cobertura.xml"), Report(hits));
+        }
+        try
+        {
+            var path = ProcessRunner.FindCoverageXml(dir);
+
+            path.Should().Be(Path.Combine(dir, ProcessRunner.MergedCoverageFile));
+            System.Xml.Linq.XDocument.Load(path!).Root!.Attribute("line-rate")!.Value.Should().Be("1");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FindDotnet_SkipsTheCurrentFolderAndRelativePathEntries()
+    {
+        // A dotnet.exe committed to the repository the server starts in ran instead of the SDK.
+        var exe = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+        var sdk = Path.Combine(Path.GetTempPath(), $"sdk-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sdk);
+        File.WriteAllText(Path.Combine(sdk, exe), "");
+        // Under the current folder, so a relative PATH entry does lead to it, as "." does from the
+        // repository (a temp folder can be on another drive, where no relative path reaches).
+        var relative = $"repo-{Guid.NewGuid():N}";
+        var planted = Directory.CreateDirectory(Path.Combine(Environment.CurrentDirectory, relative)).FullName;
+        File.WriteAllText(Path.Combine(planted, exe), "");
+        try
+        {
+            var path = string.Join(Path.PathSeparator, relative, "", $"\"{sdk}\"");
+
+            ProcessRunner.FindDotnet(processPath: null, path, dotnetRoot: null).Should().Be(Path.Combine(sdk, exe));
+            ProcessRunner.FindDotnet(Path.Combine(planted, "server.exe"), relative, dotnetRoot: sdk)
+                .Should().Be(Path.Combine(sdk, exe), "DOTNET_ROOT is the last place looked");
+            ProcessRunner.FindDotnet(null, relative, null).Should().BeNull();
+        }
+        finally
+        {
+            Directory.Delete(sdk, recursive: true);
+            Directory.Delete(planted, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FindDotnet_PrefersTheDotnetHostRunningTheServer()
+    {
+        var host = OperatingSystem.IsWindows() ? @"C:\dotnet\dotnet.exe" : "/usr/share/dotnet/dotnet";
+
+        ProcessRunner.FindDotnet(host, pathVariable: null, dotnetRoot: null).Should().Be(host);
+    }
+
     // Lines verbatim from real VSTest and MTP runs of the fixture.
     [Theory]
     [InlineData("  Determining projects to restore...", "Restoring packages")]

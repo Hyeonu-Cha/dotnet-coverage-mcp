@@ -33,10 +33,13 @@ jobs:
           # where every later step (and any MSBuild code from a package) could read it.
           persist-credentials: false
 
+      # 8.0 for the end-to-end test of a test project that also targets net8.0.
       - name: Setup .NET
         uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: Restore
         run: dotnet restore
@@ -50,10 +53,12 @@ jobs:
       - name: Coverage summary
         if: matrix.os == 'ubuntu-latest'
         shell: bash
+        # No `| head`: with pipefail, grep still writing when head exits fails the step
+        # ("grep: write error: Broken pipe") with every test passed. -m1 / -quit stop at the first.
         run: |
-          xml=$(find ./TestResults -name coverage.cobertura.xml | head -1)
-          line=$(grep -o 'line-rate="[0-9.]*"' "$xml" | head -1 | grep -o '[0-9.]*')
-          branch=$(grep -o 'branch-rate="[0-9.]*"' "$xml" | head -1 | grep -o '[0-9.]*')
+          xml=$(find ./TestResults -name coverage.cobertura.xml -print -quit)
+          line=$(grep -m1 -o 'line-rate="[0-9.]*"' "$xml" | grep -o '[0-9.]*')
+          branch=$(grep -m1 -o 'branch-rate="[0-9.]*"' "$xml" | grep -o '[0-9.]*')
           awk -v l="$line" -v b="$branch" 'BEGIN { printf "### Coverage\n\n| Line | Branch |\n|---|---|\n| %.1f%% | %.1f%% |\n", l*100, b*100 }' >> "$GITHUB_STEP_SUMMARY"
 
       # The TRX holds each failing test's message, stack and output, so a failure that

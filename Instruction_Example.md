@@ -14,7 +14,7 @@ Resolve all variables before running any tool. Do not proceed until each value i
 
 ## Step 0: Discover Scope & Build Batches
 
-1. **Scope Discovery:** Call `GetSourceFiles` with:
+1. **Scope Discovery:** Call `get_source_files` with:
    - `path` → `SOURCE_PATH` (for a single file), a folder path (for a directory), or a `.csproj` path (for a project)
    - `lineBudget` → `300` (default; adjust if context is limited)
 
@@ -29,12 +29,12 @@ Resolve all variables before running any tool. Do not proceed until each value i
    - Integration tests: build `ServiceCollection` with in-memory infrastructure
 3. **SetUp Initialization:** Ensure each test file has proper setup (framework-specific: `[SetUp]` for NUnit, constructor for xUnit, `[TestInitialize]` for MSTest) that mocks/initializes all dependencies.
 4. **Cold Start:** If no coverage exists for a file, identify the 3 most complex public methods (highest branching) and write baseline tests first.
-5. **NuGet Restore:** If you created new test projects or added packages, the first `RunTestsWithCoverage` call must use `forceRestore=true`.
+5. **NuGet Restore:** If you created new test projects or added packages, the first `run_tests_with_coverage` call must use `forceRestore=true`.
 
 ## Strict Safety & Edit Protocols
 
 1. **PROD LOCK:** NEVER modify production source files.
-2. **CLEAN APPEND:** Call `AppendTestCode` with `insertAfterAnchor` set to the closing `}` of the last test method to insert in the correct location. If no tests exist yet, insert after the setup method's closing `}`.
+2. **CLEAN APPEND:** Call `append_test_code` with `insertAfterAnchor` set to the closing `}` of the last test method to insert in the correct location. If no tests exist yet, insert after the setup method's closing `}`.
 3. **RECOVERY:** If a test fails, use your editor to fix the specific failing method. If the same test fails 3 times, delete it entirely and move on.
 4. **ITERATION CAP:** Keep iterating until both Line and Branch coverage reach 80%, or until 3 consecutive cycles show no improvement. STOP for human review at that point.
 
@@ -42,7 +42,7 @@ Resolve all variables before running any tool. Do not proceed until each value i
 
 ### 1. Run Tests & Collect Coverage
 
-Call `RunTestsWithCoverage`:
+Call `run_tests_with_coverage`:
 - `testProjectPath` → the `.csproj` from `TEST_PROJECT`
 - `filter` → omit it to run every test (or pass the test namespace) so one test run covers all files in the batch
 - `forceRestore` → `true` on the first run after scaffolding; omit otherwise
@@ -51,7 +51,7 @@ This returns the `coverage.cobertura.xml` path. One test run covers the entire b
 
 ### 2. Check Per-File Coverage
 
-For each file in the current batch, call `GetFileCoverage`:
+For each file in the current batch, call `get_file_coverage`:
 - `coberturaXmlPath` → the XML path from step 1
 - `sourceFileName` → the `.cs` filename (e.g., `ExampleService.cs`)
 
@@ -59,15 +59,15 @@ This is instant (XML parsing only, no test re-run). Check `allMeetTarget` — wh
 
 ### 3. Read Full Summary (first run only)
 
-Call `GetCoverageSummary` with the `coverage.cobertura.xml` path. Returns compact JSON — an array of classes with `lineCoverage`, `branchCoverage`, and `methods` sorted by branch coverage ascending. Use this to populate the **Before** columns of the progress table.
+Call `get_coverage_summary` with the `coverage.cobertura.xml` path. Returns compact JSON — an array of classes with `lineCoverage`, `branchCoverage`, and `methods` sorted by branch coverage ascending. Use this to populate the **Before** columns of the progress table.
 
-On subsequent runs, use `GetCoverageDiff` instead — it returns only what changed plus `cycleImprovement` deltas.
+On subsequent runs, use `get_coverage_diff` instead — it returns only what changed plus `cycleImprovement` deltas.
 
 ### 4. Find Uncovered Branches
 
 Pick the 3 methods with the **lowest branch coverage** across all files in the batch (ignore methods already >= 80%).
 
-For each, call `GetUncoveredBranches`:
+For each, call `get_uncovered_branches`:
 - `coberturaXmlPath` → the XML path
 - `methodName` → name of the method (partial match supported; returns all matches)
 
@@ -77,20 +77,20 @@ Returns uncovered branch conditions per line with `matchCount` showing how many 
 
 - Use data-driven attributes (`[TestCase]` NUnit, `[InlineData]` xUnit, `[DataRow]` MSTest) for simple value variations
 - Use separate test methods when different mock setups are required
-- Call `AppendTestCode` to add new test methods with `insertAfterAnchor` for placement
+- Call `append_test_code` to add new test methods with `insertAfterAnchor` for placement
 - Max 1-3 assertions per test; name tests `MethodName_Condition_ExpectedResult`
 
 ### 6. Handle Build Errors
 
-If `RunTestsWithCoverage` returns a build error after writing tests:
-- Use your editor (Edit tool) to fix the syntax error — do NOT use `AppendTestCode` to fix existing code
+If `run_tests_with_coverage` returns a build error after writing tests:
+- Use your editor (Edit tool) to fix the syntax error — do NOT use `append_test_code` to fix existing code
 - If the same test fails 3 times, delete it and move on
 
 If it returns `testsFailed`, the build succeeded and an assertion failed: fix the test named in `failures`. Coverage from the passing tests is still at `coberturaXmlPath`.
 
 ### 7. Re-run & Diff
 
-Run tests once (step 1 again), then call `GetCoverageDiff` to verify improvement. Call `GetFileCoverage` for each file to update per-file status.
+Run tests once (step 1 again), then call `get_coverage_diff` to verify improvement. Call `get_file_coverage` for each file to update per-file status.
 
 ### 8. Advance or Repeat
 
@@ -113,7 +113,7 @@ Run tests once (step 1 again), then call `GetCoverageDiff` to verify improvement
 
 ## Comparative Progress Table
 
-> Populate **Before** after the first `GetFileCoverage` run. Populate **After** after each subsequent run.
+> Populate **Before** after the first `get_file_coverage` run. Populate **After** after each subsequent run.
 
 | File | Method | Line % (Before) | Line % (After) | Branch % (Before) | Branch % (After) | New Tests | Status | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
